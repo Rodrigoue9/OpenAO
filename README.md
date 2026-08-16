@@ -6,9 +6,6 @@
 
 ### **https://openao.cosmosapp.lat/**
 
-Proyecto creado por Damián Catanzaro.
-
-X: [@DamianCatanzaro](https://x.com/DamianCatanzaro)
 
 ---
 
