@@ -1,0 +1,158 @@
+{
+  "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/issues/9",
+  "repository_url": "https://api.github.com/repos/Bitcoindefi/OpenAO",
+  "labels_url": "https://api.github.com/repos/Bitcoindefi/OpenAO/issues/9/labels{/name}",
+  "comments_url": "https://api.github.com/repos/Bitcoindefi/OpenAO/issues/9/comments",
+  "events_url": "https://api.github.com/repos/Bitcoindefi/OpenAO/issues/9/events",
+  "html_url": "https://github.com/Bitcoindefi/OpenAO/issues/9",
+  "id": 5165400395,
+  "node_id": "I_kwDOTnsn9c8AAAABM-HBSw",
+  "number": 9,
+  "title": "Etapa 2: colocacion de objetos, estructuras y puertas",
+  "user": {
+    "login": "leocagli",
+    "id": 71848659,
+    "node_id": "MDQ6VXNlcjcxODQ4NjU5",
+    "avatar_url": "https://avatars.githubusercontent.com/u/71848659?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/leocagli",
+    "html_url": "https://github.com/leocagli",
+    "followers_url": "https://api.github.com/users/leocagli/followers",
+    "following_url": "https://api.github.com/users/leocagli/following{/other_user}",
+    "gists_url": "https://api.github.com/users/leocagli/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/leocagli/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/leocagli/subscriptions",
+    "organizations_url": "https://api.github.com/users/leocagli/orgs",
+    "repos_url": "https://api.github.com/users/leocagli/repos",
+    "events_url": "https://api.github.com/users/leocagli/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/leocagli/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "labels": [
+    {
+      "id": 11670306254,
+      "node_id": "LA_kwDOTnsn9c8AAAACt5q9zg",
+      "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/labels/enhancement",
+      "name": "enhancement",
+      "color": "a2eeef",
+      "default": true,
+      "description": "New feature or request"
+    },
+    {
+      "id": 11852541602,
+      "node_id": "LA_kwDOTnsn9c8AAAACwnduog",
+      "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/labels/modo-construccion",
+      "name": "modo-construccion",
+      "color": "5319e7",
+      "default": false,
+      "description": "Modo construccion in-game: editor de mapas en el navegador"
+    },
+    {
+      "id": 11852541840,
+      "node_id": "LA_kwDOTnsn9c8AAAACwndvkA",
+      "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/labels/etapa-2-mundo",
+      "name": "etapa-2-mundo",
+      "color": "fbca04",
+      "default": false,
+      "description": "Etapa 2 - NPCs, objetos, edificios y salidas"
+    },
+    {
+      "id": 11852873617,
+      "node_id": "LA_kwDOTnsn9c8AAAACwnx_kQ",
+      "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/labels/bounty",
+      "name": "bounty",
+      "color": "0e8a16",
+      "default": false,
+      "description": "Issue con recompensa asignada"
+    },
+    {
+      "id": 11852873704,
+      "node_id": "LA_kwDOTnsn9c8AAAACwnx_6A",
+      "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/labels/grantfox",
+      "name": "grantfox",
+      "color": "5319e7",
+      "default": false,
+      "description": "Publicada en la campana de GrantFox"
+    },
+    {
+      "id": 11852873821,
+      "node_id": "LA_kwDOTnsn9c8AAAACwnyAXQ",
+      "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/labels/reward-50-usd",
+      "name": "reward-50-usd",
+      "color": "fbca04",
+      "default": false,
+      "description": "Recompensa 50 USD - complejidad media"
+    },
+    {
+      "id": 11852892341,
+      "node_id": "LA_kwDOTnsn9c8AAAACwnzItQ",
+      "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/labels/Maybe%20Rewarded",
+      "name": "Maybe Rewarded",
+      "color": "FBCA04",
+      "default": false,
+      "description": "Issue may be eligible for a GrantFox reward"
+    },
+    {
+      "id": 11852892377,
+      "node_id": "LA_kwDOTnsn9c8AAAACwnzI2Q",
+      "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/labels/GrantFox%20OSS",
+      "name": "GrantFox OSS",
+      "color": "F24403",
+      "default": false,
+      "description": "Issue tracked in GrantFox OSS"
+    },
+    {
+      "id": 11852892406,
+      "node_id": "LA_kwDOTnsn9c8AAAACwnzI9g",
+      "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/labels/Third%20Campaign",
+      "name": "Third Campaign",
+      "color": "0E8A16",
+      "default": false,
+      "description": "Campaign: Third Campaign"
+    }
+  ],
+  "state": "open",
+  "locked": false,
+  "assignees": [],
+  "milestone": null,
+  "comments": 0,
+  "created_at": "2026-08-16T17:15:07Z",
+  "updated_at": "2026-08-18T04:22:31Z",
+  "closed_at": null,
+  "assignee": null,
+  "author_association": "COLLABORATOR",
+  "issue_field_values": [],
+  "type": null,
+  "active_lock_reason": null,
+  "sub_issues_summary": {
+    "total": 0,
+    "completed": 0,
+    "percent_completed": 0
+  },
+  "issue_dependencies_summary": {
+    "blocked_by": 0,
+    "total_blocked_by": 0,
+    "blocking": 0,
+    "total_blocking": 0
+  },
+  "body": "Parte de #2 (modo construcción). Depende de la capa de persistencia.\n\n## Alcance\n\nColocar, mover y sacar objetos y estructuras del mundo:\n\n1. Objetos sueltos en el piso (los que un jugador puede levantar).\n2. Estructuras decorativas y edificios, que ocupan varios tiles y viven en las capas superiores del terreno.\n3. Puertas, que tienen estado (abierta o cerrada) y afectan el bloqueo del tile.\n4. Carteles y objetos con texto asociado.\n\n## Diferencia con los tiles del piso\n\nEl piso se pinta por paleta (ver la issue de pintado de terreno). Los objetos son entidades con identidad propia: tienen un `objIndex` del catálogo (hay 1062 objetos cargados en DB), una posición y a veces una cantidad o un estado.\n\nLas estructuras grandes son distintas otra vez: se dibujan en las capas 3 y 4 del terreno y suelen abarcar un rectángulo de tiles. Vale la pena decidir si se modelan como \"muchos tiles con gráficos\" o como \"una entidad que ocupa un área\".\n\n## Criterios de aceptación\n\n- [ ] Poner, mover y sacar objetos del piso funciona y persiste\n- [ ] Un `objIndex` inexistente se rechaza\n- [ ] Colocar una estructura de varios tiles es una operación atómica\n- [ ] Las puertas conservan su estado y bloquean el tile cuando están cerradas\n- [ ] Los objetos colocados aparecen en el juego tras recargar el mapa\n- [ ] Tests de integración\n\n## Preguntas abiertas\n\n- ¿Las estructuras grandes se guardan como una entidad con área, o como tiles individuales? Lo primero es más limpio para editar y deshacer; lo segundo encaja mejor con cómo el renderer ya dibuja las capas.\n- ¿Se permite colocar objetos con cantidad (pilas de oro, por ejemplo)? Si sí, hace falta límite, o se puede inyectar economía infinita al mundo.\n\n## Archivos relevantes\n\n- `api/src/repositories/gameObjects.ts` (catálogo de objetos)\n- `terrain.json` (capas 3 y 4, donde viven las estructuras)\n",
+  "closed_by": null,
+  "reactions": {
+    "url": "https://api.github.com/repos/Bitcoindefi/OpenAO/issues/9/reactions",
+    "total_count": 0,
+    "+1": 0,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 0,
+    "heart": 0,
+    "rocket": 0,
+    "eyes": 0
+  },
+  "timeline_url": "https://api.github.com/repos/Bitcoindefi/OpenAO/issues/9/timeline",
+  "performed_via_github_app": null,
+  "state_reason": null,
+  "pinned_comment": null
+}

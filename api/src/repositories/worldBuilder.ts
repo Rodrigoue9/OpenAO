@@ -417,3 +417,177 @@ export async function clearTile(
 
     return (result.rowCount ?? 0) > 0;
 }
+
+// ---------------------------------------------------------------------------
+// ETAPA 2: OBJETOS, ESTRUCTURAS Y PUERTAS EN EL MUNDO (#9)
+// ---------------------------------------------------------------------------
+
+export const mapObjectSchema = z.object({
+    mapNum: z.coerce.number().int().positive(),
+    x: z.coerce.number().int().min(1).max(MAP_SIZE),
+    y: z.coerce.number().int().min(1).max(MAP_SIZE),
+    objIndex: z.coerce.number().int().positive(),
+    amount: z.coerce.number().int().min(1).max(10_000).default(1),
+});
+
+export type MapObjectInput = z.infer<typeof mapObjectSchema>;
+
+export const structureTileSchema = z.object({
+    offsetX: z.coerce.number().int(),
+    offsetY: z.coerce.number().int(),
+    layer: z.coerce.number().int().min(3).max(4),
+    grhIndex: z.coerce.number().int().positive(),
+    blocked: z.boolean().default(false),
+});
+
+export const structurePlacementSchema = z.object({
+    mapNum: z.coerce.number().int().positive(),
+    originX: z.coerce.number().int().min(1).max(MAP_SIZE),
+    originY: z.coerce.number().int().min(1).max(MAP_SIZE),
+    tiles: z.array(structureTileSchema).min(1).max(200),
+});
+
+export type StructurePlacementInput = z.infer<typeof structurePlacementSchema>;
+
+export const doorStateSchema = z.object({
+    mapNum: z.coerce.number().int().positive(),
+    x: z.coerce.number().int().min(1).max(MAP_SIZE),
+    y: z.coerce.number().int().min(1).max(MAP_SIZE),
+    isOpen: z.boolean(),
+    openGrhIndex: z.coerce.number().int().positive(),
+    closedGrhIndex: z.coerce.number().int().positive(),
+});
+
+export type DoorStateInput = z.infer<typeof doorStateSchema>;
+
+/**
+ * Coloca o actualiza un objeto en el piso de un mapa.
+ * Valida que el objIndex exista en el catalogo de game_objects.
+ */
+export async function placeMapObject(
+    input: MapObjectInput,
+    accountId: string,
+): Promise<{ ok: true; mapNum: number; x: number; y: number; objIndex: number; amount: number }> {
+    const parsed = mapObjectSchema.parse(input);
+
+    // Validar que el objIndex exista en el catalogo
+    const exists = await pool.query(
+        `SELECT id, name FROM game_objects WHERE id = $1 LIMIT 1`,
+        [parsed.objIndex],
+    );
+
+    if (exists.rowCount === 0) {
+        throw new Error(
+            `El objeto con objIndex ${parsed.objIndex} no existe en el catálogo.`,
+        );
+    }
+
+    await pool.query(
+        `INSERT INTO game_map_tile_overrides
+             (map_num, x, y, layer, grh_index, blocked, status, updated_by_account_id, updated_at)
+         VALUES ($1, $2, $3, 2, $4, NULL, 'draft', $5, NOW())
+         ON CONFLICT (map_num, x, y, layer, status) DO UPDATE
+         SET grh_index = EXCLUDED.grh_index,
+             updated_by_account_id = EXCLUDED.updated_by_account_id,
+             updated_at = NOW()`,
+        [parsed.mapNum, parsed.x, parsed.y, parsed.objIndex, accountId],
+    );
+
+    return {
+        ok: true,
+        mapNum: parsed.mapNum,
+        x: parsed.x,
+        y: parsed.y,
+        objIndex: parsed.objIndex,
+        amount: parsed.amount,
+    };
+}
+
+/**
+ * Remueve un objeto colocado en el piso.
+ */
+export async function removeMapObject(
+    mapNum: number,
+    x: number,
+    y: number,
+): Promise<{ ok: boolean }> {
+    const result = await pool.query(
+        `DELETE FROM game_map_tile_overrides
+         WHERE map_num = $1 AND x = $2 AND y = $3 AND layer = 2 AND status = 'draft'`,
+        [mapNum, x, y],
+    );
+
+    return { ok: (result.rowCount ?? 0) > 0 };
+}
+
+/**
+ * Coloca una estructura multi-tile de forma atómica en las capas 3 y 4.
+ */
+export async function placeStructure(
+    input: StructurePlacementInput,
+    accountId: string,
+): Promise<{ ok: true; tilesPlaced: number }> {
+    const parsed = structurePlacementSchema.parse(input);
+    const client = await pool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        for (const tile of parsed.tiles) {
+            const targetX = parsed.originX + tile.offsetX;
+            const targetY = parsed.originY + tile.offsetY;
+
+            if (targetX < 1 || targetX > MAP_SIZE || targetY < 1 || targetY > MAP_SIZE) {
+                throw new Error(
+                    `Tile fuera de limites: (${targetX}, ${targetY}). El mapa es de ${MAP_SIZE}x${MAP_SIZE}.`,
+                );
+            }
+
+            await client.query(
+                `INSERT INTO game_map_tile_overrides
+                     (map_num, x, y, layer, grh_index, blocked, status, updated_by_account_id, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, NOW())
+                 ON CONFLICT (map_num, x, y, layer, status) DO UPDATE
+                 SET grh_index = EXCLUDED.grh_index,
+                     blocked = EXCLUDED.blocked,
+                     updated_by_account_id = EXCLUDED.updated_by_account_id,
+                     updated_at = NOW()`,
+                [parsed.mapNum, targetX, targetY, tile.layer, tile.grhIndex, tile.blocked, accountId],
+            );
+        }
+
+        await client.query("COMMIT");
+        return { ok: true, tilesPlaced: parsed.tiles.length };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * Modifica el estado de una puerta (abierta/cerrada) y actualiza el bloqueo del tile.
+ */
+export async function setDoorState(
+    input: DoorStateInput,
+    accountId: string,
+): Promise<{ ok: true; isOpen: boolean; blocked: boolean }> {
+    const parsed = doorStateSchema.parse(input);
+    const grhIndex = parsed.isOpen ? parsed.openGrhIndex : parsed.closedGrhIndex;
+    const blocked = !parsed.isOpen; // Si está cerrada, bloquea el paso
+
+    await pool.query(
+        `INSERT INTO game_map_tile_overrides
+             (map_num, x, y, layer, grh_index, blocked, status, updated_by_account_id, updated_at)
+         VALUES ($1, $2, $3, 3, $4, $5, 'draft', $6, NOW())
+         ON CONFLICT (map_num, x, y, layer, status) DO UPDATE
+         SET grh_index = EXCLUDED.grh_index,
+             blocked = EXCLUDED.blocked,
+             updated_by_account_id = EXCLUDED.updated_by_account_id,
+             updated_at = NOW()`,
+        [parsed.mapNum, parsed.x, parsed.y, grhIndex, blocked, accountId],
+    );
+
+    return { ok: true, isOpen: parsed.isOpen, blocked };
+}
