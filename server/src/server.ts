@@ -14,6 +14,11 @@ import type {
 } from "./types/runtime";
 import { getClientById } from "./runtimeRegistry";
 import * as safeZone from "./safeZone";
+import {
+    gracefulShutdown,
+    type GracefulShutdownDependencies,
+    type ShutdownClient,
+} from "./gracefulShutdown";
 
 export {};
 const config = require("./config");
@@ -950,51 +955,25 @@ createDynamicScheduler(
 
 void saveOnlineStatsSnapshot();
 
-let isShuttingDown = false;
-
-export async function gracefulShutdown(signal: string): Promise<void> {
-    if (isShuttingDown) {
-        return;
-    }
-    isShuttingDown = true;
-    process.stdout.write(`[Servidor] Recibida señal ${signal}. Iniciando apagado seguro...\n`);
-
-    const shutdownTimeout = setTimeout(() => {
-        process.stderr.write("[Servidor] Tiempo de apagado agotado. Forzando salida.\n");
-        process.exit(1);
-    }, 8000);
-
-    try {
-        if (vars && vars.clients) {
-            const allClients = Object.values(vars.clients) as any[];
-            for (const client of allClients) {
-                if (client && client.readyState === client.OPEN) {
-                    try {
-                        client.close(1001, "[Servidor] El servidor se está reiniciando.");
-                    } catch {}
-                }
-            }
-        }
-
-        const resetCharactersResponse = (await funct.fetchUrl("/internal/characters/reset-connected", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: vars.tokenAuth,
-            },
-        })) as { updated?: number } | undefined;
-
-        process.stdout.write(
-            `[Servidor] Apagado seguro: ${resetCharactersResponse?.updated ?? 0} personajes marcados como desconectados.\n`,
-        );
-    } catch (error: any) {
-        process.stderr.write(`[Servidor] Error durante el apagado seguro: ${error?.message || error}\n`);
-    } finally {
-        clearTimeout(shutdownTimeout);
-        process.exit(0);
-    }
+function getGracefulShutdownDependencies(): GracefulShutdownDependencies {
+    return {
+        clients: vars.clients as Record<string, ShutdownClient | undefined>,
+        tokenAuth: vars.tokenAuth,
+        fetchUrl: funct.fetchUrl,
+        exit: (code) => process.exit(code),
+        setTimeout,
+        clearTimeout,
+        writeOut: (message) => process.stdout.write(message),
+        writeErr: (message) => process.stderr.write(message),
+    };
 }
 
-process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
-process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+export { gracefulShutdown };
+
+process.on("SIGINT", () =>
+    void gracefulShutdown("SIGINT", getGracefulShutdownDependencies()),
+);
+process.on("SIGTERM", () =>
+    void gracefulShutdown("SIGTERM", getGracefulShutdownDependencies()),
+);
 
