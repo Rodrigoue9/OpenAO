@@ -31,7 +31,20 @@ export type UserMapQuota = {
     maxObjectCount: number;
 };
 
-export async function getUserMapQuota(accountId: number): Promise<UserMapQuota> {
+export const ALLOWED_USER_MAP_STATUSES: UserMapStatus[] = [
+    "draft",
+    "proposed",
+    "published",
+    "archived",
+];
+
+export function validateUserMapStatus(status: unknown): asserts status is UserMapStatus {
+    if (typeof status !== "string" || !ALLOWED_USER_MAP_STATUSES.includes(status as UserMapStatus)) {
+        throw new Error(`Estado no valido. Permitidos: ${ALLOWED_USER_MAP_STATUSES.join(", ")}`);
+    }
+}
+
+export async function getUserMapQuota(accountId: string): Promise<UserMapQuota> {
     const res = await pool.query(
         `SELECT COUNT(*)::int AS "mapsCount",
                 COALESCE(SUM(asset_bytes), 0)::bigint AS "totalAssetBytes",
@@ -54,7 +67,7 @@ export async function getUserMapQuota(accountId: number): Promise<UserMapQuota> 
     };
 }
 
-export async function checkMapOwnership(mapId: number, accountId: number): Promise<boolean> {
+export async function checkMapOwnership(mapId: number, accountId: string): Promise<boolean> {
     const res = await pool.query(
         `SELECT 1 FROM user_maps WHERE id = $1 AND account_id = $2`,
         [mapId, accountId]
@@ -63,39 +76,62 @@ export async function checkMapOwnership(mapId: number, accountId: number): Promi
 }
 
 export async function createUserMap(
-    accountId: number,
+    accountId: string,
     name: string,
     terrain: string = "PRADERA",
     zone: string = "CAMPO"
 ): Promise<UserMapRecord> {
-    const quota = await getUserMapQuota(accountId);
-    if (quota.mapsUsed >= quota.maxMaps) {
-        throw new Error(`Se ha alcanzado la cuota maxima de mapas (${quota.maxMaps})`);
+    if (!name || !name.trim()) {
+        throw new Error("El nombre del mapa es obligatorio");
     }
 
-    const nextIdRes = await pool.query(
-        `SELECT COALESCE(MAX(id) + 1, $1) AS "nextId"
-         FROM user_maps
-         WHERE id >= $1 AND id <= $2`,
-        [USER_MAP_START_ID, USER_MAP_END_ID]
-    );
-    const nextId = Math.max(USER_MAP_START_ID, Number(nextIdRes.rows[0]?.nextId || USER_MAP_START_ID));
-    if (nextId > USER_MAP_END_ID) {
-        throw new Error("No hay identificadores de mapa disponibles en el rango de usuarios");
-    }
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock(6001999)");
 
-    const res = await pool.query(
-        `INSERT INTO user_maps (id, account_id, name, terrain, zone, status)
-         VALUES ($1, $2, $3, $4, $5, 'draft')
-         RETURNING id, account_id AS "accountId", name, terrain, zone, status,
-                   npc_count AS "npcCount", object_count AS "objectCount",
-                   asset_bytes AS "assetBytes", created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [nextId, accountId, name.trim(), terrain, zone]
-    );
-    return res.rows[0];
+        const quotaRes = await client.query(
+            `SELECT COUNT(*)::int AS "mapsCount" FROM user_maps WHERE account_id = $1 AND status != 'archived'`,
+            [accountId]
+        );
+        const mapsCount = quotaRes.rows[0]?.mapsCount || 0;
+        if (mapsCount >= DEFAULT_MAX_USER_MAPS) {
+            throw new Error(`Se ha alcanzado la cuota maxima de mapas (${DEFAULT_MAX_USER_MAPS})`);
+        }
+
+        const nextIdRes = await client.query(
+            `SELECT COALESCE(MAX(id) + 1, $1) AS "nextId"
+             FROM user_maps
+             WHERE id >= $1 AND id <= $2`,
+            [USER_MAP_START_ID, USER_MAP_END_ID]
+        );
+        const nextId = Math.max(USER_MAP_START_ID, Number(nextIdRes.rows[0]?.nextId || USER_MAP_START_ID));
+        if (nextId > USER_MAP_END_ID) {
+            throw new Error("No hay identificadores de mapa disponibles en el rango de usuarios");
+        }
+
+        const res = await client.query(
+            `INSERT INTO user_maps (id, account_id, name, terrain, zone, status)
+             VALUES ($1, $2, $3, $4, $5, 'draft')
+             RETURNING id, account_id AS "accountId", name, terrain, zone, status,
+                       npc_count AS "npcCount", object_count AS "objectCount",
+                       asset_bytes AS "assetBytes", created_at AS "createdAt", updated_at AS "updatedAt"`,
+            [nextId, accountId, name.trim(), terrain, zone]
+        );
+        await client.query("COMMIT");
+        return res.rows[0];
+    } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+    } finally {
+        client.release();
+    }
 }
 
-export async function getUserMap(mapId: number): Promise<UserMapRecord | null> {
+export async function getUserMap(mapId: number, callerAccountId?: string): Promise<UserMapRecord | null> {
+    if (!Number.isInteger(mapId) || mapId < 1) {
+        throw new Error("mapId debe ser un entero positivo");
+    }
     const res = await pool.query(
         `SELECT id, account_id AS "accountId", name, terrain, zone, status,
                 npc_count AS "npcCount", object_count AS "objectCount",
@@ -104,10 +140,16 @@ export async function getUserMap(mapId: number): Promise<UserMapRecord | null> {
          WHERE id = $1`,
         [mapId]
     );
-    return res.rows[0] || null;
+    const map = res.rows[0];
+    if (!map) return null;
+
+    if (map.status !== "published" && (!callerAccountId || map.accountId !== callerAccountId)) {
+        return null;
+    }
+    return map;
 }
 
-export async function listUserMaps(accountId: number): Promise<UserMapRecord[]> {
+export async function listUserMaps(accountId: string): Promise<UserMapRecord[]> {
     const res = await pool.query(
         `SELECT id, account_id AS "accountId", name, terrain, zone, status,
                 npc_count AS "npcCount", object_count AS "objectCount",
@@ -121,7 +163,10 @@ export async function listUserMaps(accountId: number): Promise<UserMapRecord[]> 
 }
 
 export async function listPublishedUserMaps(page = 1, limit = 20): Promise<{ maps: UserMapRecord[]; total: number }> {
-    const offset = (Math.max(1, page) - 1) * limit;
+    const safePage = Math.max(1, Number.isInteger(page) ? page : 1);
+    const safeLimit = Math.min(100, Math.max(1, Number.isInteger(limit) ? limit : 20));
+    const offset = (safePage - 1) * safeLimit;
+
     const countRes = await pool.query(`SELECT COUNT(*)::int AS total FROM user_maps WHERE status = 'published'`);
     const total = countRes.rows[0]?.total || 0;
 
@@ -133,16 +178,20 @@ export async function listPublishedUserMaps(page = 1, limit = 20): Promise<{ map
          WHERE status = 'published'
          ORDER BY id ASC
          LIMIT $1 OFFSET $2`,
-        [limit, offset]
+        [safeLimit, offset]
     );
     return { maps: res.rows, total };
 }
 
 export async function updateUserMapStatus(
     mapId: number,
-    accountId: number,
+    accountId: string,
     newStatus: UserMapStatus
 ): Promise<UserMapRecord | null> {
+    if (!Number.isInteger(mapId) || mapId < 1) {
+        throw new Error("mapId debe ser un entero positivo");
+    }
+    validateUserMapStatus(newStatus);
     const isOwner = await checkMapOwnership(mapId, accountId);
     if (!isOwner) {
         throw new Error("No tienes permiso para modificar este mapa");

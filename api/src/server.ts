@@ -2891,10 +2891,14 @@ app.get("/user-online-stats", async (request, response) => {
     }
 });
 
-app.post("/internal/user-maps", requireAuth, async (request, response) => {
+app.post("/internal/user-maps", async (request, response) => {
     try {
+        const authorized = await getAuthorizedSession(request);
+        if (!authorized) {
+            return response.status(401).json({ error: "No autorizado" });
+        }
+        const accountId = authorized.session.account._id;
         const { name, terrain, zone } = request.body;
-        const accountId = (request as any).user?.accountId || 1;
         const { createUserMap } = await import("./repositories/userMaps");
         const result = await createUserMap(accountId, name, terrain, zone);
         response.status(201).json(result);
@@ -2905,9 +2909,13 @@ app.post("/internal/user-maps", requireAuth, async (request, response) => {
     }
 });
 
-app.get("/internal/user-maps", requireAuth, async (request, response) => {
+app.get("/internal/user-maps", async (request, response) => {
     try {
-        const accountId = (request as any).user?.accountId || 1;
+        const authorized = await getAuthorizedSession(request);
+        if (!authorized) {
+            return response.status(401).json({ error: "No autorizado" });
+        }
+        const accountId = authorized.session.account._id;
         const { listUserMaps } = await import("./repositories/userMaps");
         const result = await listUserMaps(accountId);
         response.json(result);
@@ -2918,9 +2926,13 @@ app.get("/internal/user-maps", requireAuth, async (request, response) => {
     }
 });
 
-app.get("/internal/user-maps/quota", requireAuth, async (request, response) => {
+app.get("/internal/user-maps/quota", async (request, response) => {
     try {
-        const accountId = (request as any).user?.accountId || 1;
+        const authorized = await getAuthorizedSession(request);
+        if (!authorized) {
+            return response.status(401).json({ error: "No autorizado" });
+        }
+        const accountId = authorized.session.account._id;
         const { getUserMapQuota } = await import("./repositories/userMaps");
         const result = await getUserMapQuota(accountId);
         response.json(result);
@@ -2945,11 +2957,13 @@ app.get("/internal/user-maps/published", async (request, response) => {
     }
 });
 
-app.get("/internal/user-maps/:id", requireAuth, async (request, response) => {
+app.get("/internal/user-maps/:id", async (request, response) => {
     try {
         const id = Number(request.params.id);
+        const authorized = await getAuthorizedSession(request);
+        const callerAccountId = authorized?.session.account._id;
         const { getUserMap } = await import("./repositories/userMaps");
-        const result = await getUserMap(id);
+        const result = await getUserMap(id, callerAccountId);
         if (!result) {
             return response.status(404).json({ error: "Mapa no encontrado" });
         }
@@ -2961,11 +2975,15 @@ app.get("/internal/user-maps/:id", requireAuth, async (request, response) => {
     }
 });
 
-app.patch("/internal/user-maps/:id/status", requireAuth, async (request, response) => {
+app.patch("/internal/user-maps/:id/status", async (request, response) => {
     try {
         const id = Number(request.params.id);
         const { status } = request.body;
-        const accountId = (request as any).user?.accountId || 1;
+        const authorized = await getAuthorizedSession(request);
+        if (!authorized) {
+            return response.status(401).json({ error: "No autorizado" });
+        }
+        const accountId = authorized.session.account._id;
         const { updateUserMapStatus } = await import("./repositories/userMaps");
         const result = await updateUserMapStatus(id, accountId, status);
         if (!result) {
