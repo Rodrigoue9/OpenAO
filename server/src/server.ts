@@ -949,3 +949,52 @@ createDynamicScheduler(
 );
 
 void saveOnlineStatsSnapshot();
+
+let isShuttingDown = false;
+
+export async function gracefulShutdown(signal: string): Promise<void> {
+    if (isShuttingDown) {
+        return;
+    }
+    isShuttingDown = true;
+    process.stdout.write(`[Servidor] Recibida señal ${signal}. Iniciando apagado seguro...\n`);
+
+    const shutdownTimeout = setTimeout(() => {
+        process.stderr.write("[Servidor] Tiempo de apagado agotado. Forzando salida.\n");
+        process.exit(1);
+    }, 8000);
+
+    try {
+        if (vars && vars.clients) {
+            const allClients = Object.values(vars.clients) as any[];
+            for (const client of allClients) {
+                if (client && client.readyState === client.OPEN) {
+                    try {
+                        client.close(1001, "[Servidor] El servidor se está reiniciando.");
+                    } catch {}
+                }
+            }
+        }
+
+        const resetCharactersResponse = (await funct.fetchUrl("/internal/characters/reset-connected", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: vars.tokenAuth,
+            },
+        })) as { updated?: number } | undefined;
+
+        process.stdout.write(
+            `[Servidor] Apagado seguro: ${resetCharactersResponse?.updated ?? 0} personajes marcados como desconectados.\n`,
+        );
+    } catch (error: any) {
+        process.stderr.write(`[Servidor] Error durante el apagado seguro: ${error?.message || error}\n`);
+    } finally {
+        clearTimeout(shutdownTimeout);
+        process.exit(0);
+    }
+}
+
+process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+
