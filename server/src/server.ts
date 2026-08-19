@@ -368,6 +368,8 @@ function trackClientActivity(ws: RuntimeClient, packageID: number) {
 
     ws.packetCount = Number(ws.packetCount ?? 0) + 1;
 
+    ws.lastActivityAt = now;
+
     if (isPingPacket) {
         return;
     }
