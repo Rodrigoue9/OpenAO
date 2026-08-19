@@ -286,6 +286,33 @@ class LoadMaps {
             resolve(mapNum);
         });
     }
+
+    async reloadMapByNumber(mapNum: number): Promise<boolean> {
+        if (!this.mapFilesExist(mapNum)) {
+            throw new Error(`El mapa ${mapNum} no existe en disco`);
+        }
+
+        await this.readMap(mapNum);
+
+        if (vars.userConectados) {
+            for (const userIndex of Object.keys(vars.userConectados)) {
+                const user = vars.userConectados[userIndex];
+                if (user && user.pos && user.pos.map === mapNum) {
+                    const tile = vars.mapa[mapNum]?.[user.pos.y]?.[user.pos.x];
+                    if (tile?.blocked) {
+                        user.pos.map = 1;
+                        user.pos.x = 50;
+                        user.pos.y = 50;
+                        if (typeof user.sendPosicion === "function") {
+                            user.sendPosicion();
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
 }
 
 module.exports = LoadMaps;
