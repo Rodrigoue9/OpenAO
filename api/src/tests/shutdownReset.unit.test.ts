@@ -1,41 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
+import { resetAllCharactersConnectedStatus } from "../repositories/characters";
+import { resetAllArenaRoomMembersConnectedStatus } from "../repositories/arenas";
 
-test("gracefulShutdown reset response and signal safety", async () => {
-    let resetCalled = false;
-    let disconnectedClients = 0;
+test("resetAllCharactersConnectedStatus and resetAllArenaRoomMembersConnectedStatus return numeric counts", async () => {
+    const [updatedCharacters, updatedArenaMembers] = await Promise.all([
+        resetAllCharactersConnectedStatus(),
+        resetAllArenaRoomMembersConnectedStatus(),
+    ]);
 
-    const mockClients = {
-        "1": {
-            OPEN: 1,
-            readyState: 1,
-            close: () => { disconnectedClients++; }
-        },
-        "2": {
-            OPEN: 1,
-            readyState: 0,
-            close: () => {}
-        }
-    };
-
-    const mockFetch = async (url: string) => {
-        if (url === "/internal/characters/reset-connected") {
-            resetCalled = true;
-            return { updated: 5 };
-        }
-        return {};
-    };
-
-    // Simulate graceful shutdown logic
-    for (const client of Object.values(mockClients)) {
-        if (client.readyState === client.OPEN) {
-            client.close();
-        }
-    }
-
-    const res = await mockFetch("/internal/characters/reset-connected");
-
-    assert.equal(resetCalled, true);
-    assert.equal(disconnectedClients, 1);
-    assert.equal(res.updated, 5);
+    assert.equal(typeof updatedCharacters, "number");
+    assert.equal(typeof updatedArenaMembers, "number");
+    assert.equal(updatedCharacters >= 0, true);
+    assert.equal(updatedArenaMembers >= 0, true);
 });
