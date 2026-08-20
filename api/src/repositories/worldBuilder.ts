@@ -218,6 +218,41 @@ export async function listGraphics(limit = 100): Promise<UploadedGraphic[]> {
     }));
 }
 
+export const paletteEntrySchema = z.object({
+    graphics: z.array(z.number().int().positive()).min(1).max(4),
+    blocked: z.boolean().optional(),
+});
+
+export type PaletteEntry = z.infer<typeof paletteEntrySchema>;
+
+/**
+ * Valida que los graficos de una entrada de paleta existan (originales o subidos).
+ */
+export async function validatePaletteEntry(
+    entry: PaletteEntry,
+): Promise<{ valid: boolean; reason?: string }> {
+    for (const grhIndex of entry.graphics) {
+        if (grhIndex >= UPLOADED_GRAPHIC_INDEX_START) {
+            const exists = await pool.query(
+                `SELECT 1 FROM game_uploaded_graphics WHERE grh_index = $1 LIMIT 1`,
+                [grhIndex],
+            );
+            if (exists.rowCount === 0) {
+                return {
+                    valid: false,
+                    reason: `El grafico ${grhIndex} no existe en el motor ni en assets subidos.`,
+                };
+            }
+        } else if (grhIndex <= 0) {
+            return {
+                valid: false,
+                reason: `Indice de grafico invalido: ${grhIndex}.`,
+            };
+        }
+    }
+    return { valid: true };
+}
+
 export const tilePaintSchema = z.object({
     x: z.coerce.number().int().min(1).max(MAP_SIZE),
     y: z.coerce.number().int().min(1).max(MAP_SIZE),
