@@ -8,6 +8,8 @@ import {
     MAX_STRUCTURE_OFFSET,
     placeMapObject,
     placeStructure,
+    removeDoor,
+    removeMapObject,
     setDoorState,
     structurePlacementSchema,
 } from "../repositories/worldBuilder";
@@ -172,9 +174,36 @@ describe("WorldBuilder Etapa 2 - repository operations (#9)", () => {
         expect(query).toHaveBeenCalledTimes(1);
     });
 
+    it("remove objetos publicados e em rascunho", async () => {
+        const query = vi
+            .spyOn(pool, "query")
+            .mockResolvedValueOnce({ rowCount: 2, rows: [] } as never);
+
+        await expect(removeMapObject(1, 10, 11)).resolves.toEqual({ ok: true });
+
+        expect(query).toHaveBeenCalledWith(
+            expect.not.stringContaining("status = 'draft'"),
+            [1, 10, 11],
+        );
+    });
+
+    it("remove portas publicadas e em rascunho", async () => {
+        const query = vi
+            .spyOn(pool, "query")
+            .mockResolvedValueOnce({ rowCount: 2, rows: [] } as never);
+
+        await expect(removeDoor(1, 20, 20)).resolves.toEqual({ ok: true });
+
+        expect(query).toHaveBeenCalledWith(
+            expect.stringContaining("game_map_door_overrides"),
+            [1, 20, 20],
+        );
+    });
+
     it("confirma atomicamente uma estrutura sem conflito de porta", async () => {
         const query = vi
             .fn()
+            .mockResolvedValueOnce({})
             .mockResolvedValueOnce({})
             .mockResolvedValueOnce({ rowCount: 0 })
             .mockResolvedValueOnce({ rowCount: 1 })
@@ -205,16 +234,22 @@ describe("WorldBuilder Etapa 2 - repository operations (#9)", () => {
         expect(query).toHaveBeenNthCalledWith(1, "BEGIN");
         expect(query).toHaveBeenNthCalledWith(
             2,
+            expect.stringContaining("pg_advisory_xact_lock"),
+            [9_200_009, 1],
+        );
+        expect(query).toHaveBeenNthCalledWith(
+            3,
             expect.stringContaining("game_map_door_overrides"),
             [1, 20, 30],
         );
-        expect(query).toHaveBeenNthCalledWith(4, "COMMIT");
+        expect(query).toHaveBeenNthCalledWith(5, "COMMIT");
         expect(release).toHaveBeenCalledOnce();
     });
 
     it("faz rollback quando uma estrutura colide com uma porta", async () => {
         const query = vi
             .fn()
+            .mockResolvedValueOnce({})
             .mockResolvedValueOnce({})
             .mockResolvedValueOnce({ rowCount: 1 })
             .mockResolvedValueOnce({});
@@ -241,7 +276,7 @@ describe("WorldBuilder Etapa 2 - repository operations (#9)", () => {
             ),
         ).rejects.toThrow("colisiona con una puerta");
 
-        expect(query).toHaveBeenNthCalledWith(3, "ROLLBACK");
+        expect(query).toHaveBeenNthCalledWith(4, "ROLLBACK");
         expect(release).toHaveBeenCalledOnce();
     });
 
@@ -271,13 +306,14 @@ describe("WorldBuilder Etapa 2 - repository operations (#9)", () => {
         ).rejects.toThrow("fuera de limites");
 
         expect(query).toHaveBeenNthCalledWith(1, "BEGIN");
-        expect(query).toHaveBeenNthCalledWith(2, "ROLLBACK");
+        expect(query).toHaveBeenNthCalledWith(3, "ROLLBACK");
         expect(release).toHaveBeenCalledOnce();
     });
 
     it("persiste porta fechada com bloqueio sem ocupar a camada 3", async () => {
         const query = vi
             .fn()
+            .mockResolvedValueOnce({})
             .mockResolvedValueOnce({})
             .mockResolvedValueOnce({ rowCount: 0 })
             .mockResolvedValueOnce({ rowCount: 1 })
@@ -300,11 +336,11 @@ describe("WorldBuilder Etapa 2 - repository operations (#9)", () => {
         ).resolves.toEqual({ ok: true, isOpen: false, blocked: true });
 
         expect(query).toHaveBeenNthCalledWith(
-            3,
+            4,
             expect.stringContaining("game_map_door_overrides"),
             [1, 20, 20, 101, 100, false, true, "account-id"],
         );
-        expect(query).toHaveBeenNthCalledWith(4, "COMMIT");
+        expect(query).toHaveBeenNthCalledWith(5, "COMMIT");
         expect(release).toHaveBeenCalledOnce();
     });
 });

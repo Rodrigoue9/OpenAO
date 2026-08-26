@@ -612,6 +612,10 @@ export async function clearTile(
 // ETAPA 2: OBJETOS, ESTRUCTURAS Y PUERTAS EN EL MUNDO (#9)
 // ---------------------------------------------------------------------------
 
+// Serializa cambios de puertas/estructuras del mismo mapa. Son operaciones de
+// administración poco frecuentes y el lock evita carreras entre dos tablas.
+const PLACEMENT_LOCK_NAMESPACE = 9_200_009;
+
 export const mapObjectSchema = z.object({
     mapNum: z.coerce.number().int().positive(),
     x: z.coerce.number().int().min(1).max(MAP_SIZE),
@@ -722,7 +726,7 @@ export async function removeMapObject(
 ): Promise<{ ok: boolean }> {
     const result = await pool.query(
         `DELETE FROM game_map_object_overrides
-         WHERE map_num = $1 AND x = $2 AND y = $3 AND status = 'draft'`,
+         WHERE map_num = $1 AND x = $2 AND y = $3`,
         [mapNum, x, y],
     );
 
@@ -741,6 +745,10 @@ export async function placeStructure(
 
     try {
         await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
+            PLACEMENT_LOCK_NAMESPACE,
+            parsed.mapNum,
+        ]);
 
         for (const tile of parsed.tiles) {
             const targetX = parsed.originX + tile.offsetX;
@@ -804,6 +812,10 @@ export async function setDoorState(
 
     try {
         await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
+            PLACEMENT_LOCK_NAMESPACE,
+            parsed.mapNum,
+        ]);
 
         const structureConflict = await client.query(
             `SELECT 1 FROM game_map_tile_overrides
@@ -853,4 +865,19 @@ export async function setDoorState(
     }
 
     return { ok: true, isOpen: parsed.isOpen, blocked };
+}
+
+/** Remueve una puerta tanto de borrador como publicada. */
+export async function removeDoor(
+    mapNum: number,
+    x: number,
+    y: number,
+): Promise<{ ok: boolean }> {
+    const result = await pool.query(
+        `DELETE FROM game_map_door_overrides
+         WHERE map_num = $1 AND x = $2 AND y = $3`,
+        [mapNum, x, y],
+    );
+
+    return { ok: (result.rowCount ?? 0) > 0 };
 }

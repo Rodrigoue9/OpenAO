@@ -111,6 +111,7 @@ import {
     placeMapObject,
     placeStructure,
     publishMap,
+    removeDoor,
     removeMapObject,
     revertMap,
     setDoorState,
@@ -1056,6 +1057,34 @@ app.put(
                     authorized.session.account._id,
                 ),
             );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+app.delete(
+    "/admin/game-data/maps/:mapNum/doors/:x/:y",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+            const x = Number.parseInt(request.params.x ?? "", 10);
+            const y = Number.parseInt(request.params.y ?? "", 10);
+
+            if (![mapNum, x, y].every(Number.isInteger)) {
+                response.status(400).json({ error: "Parametros invalidos." });
+                return;
+            }
+
+            response.json(await removeDoor(mapNum, x, y));
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : "Unexpected error";
