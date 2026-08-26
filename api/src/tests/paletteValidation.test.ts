@@ -4,8 +4,8 @@ import {
     paletteEntrySchema,
     UPLOADED_GRAPHIC_INDEX_START,
     validatePaletteEntry,
-} from "../worldBuilder";
-import pool from "../../db";
+} from "../repositories/worldBuilder";
+import pool from "../db";
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -48,22 +48,24 @@ describe("Palette Entry Schema and Validation (#6)", () => {
     });
 
     it("should accept an original engine graphic without a database lookup", async () => {
+        const query = vi.spyOn(pool, "query");
         const result = await validatePaletteEntry({
             graphics: [MAX_ENGINE_GRAPHIC_INDEX],
         });
 
         expect(result).toEqual({ valid: true });
-        expect(pool.query).not.toHaveBeenCalled();
+        expect(query).not.toHaveBeenCalled();
     });
 
     it("should reject graphic indices outside the original engine range", async () => {
+        const query = vi.spyOn(pool, "query");
         const result = await validatePaletteEntry({
             graphics: [MAX_ENGINE_GRAPHIC_INDEX + 1],
         });
 
         expect(result.valid).toBe(false);
         expect(result.reason).toContain("Indice de grafico invalido");
-        expect(pool.query).not.toHaveBeenCalled();
+        expect(query).not.toHaveBeenCalled();
     });
 
     it("should validate uploaded graphics against the database", async () => {
