@@ -1,8 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+    MAX_ENGINE_GRAPHIC_INDEX,
     paletteEntrySchema,
     UPLOADED_GRAPHIC_INDEX_START,
+    validatePaletteEntry,
 } from "../worldBuilder";
+import pool from "../../db";
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
 
 describe("Palette Entry Schema and Validation (#6)", () => {
     it("should accept valid multi-layer palette entries with blocking flag", () => {
@@ -35,6 +42,54 @@ describe("Palette Entry Schema and Validation (#6)", () => {
     it("should enforce non-colliding reserved range for uploaded graphics", () => {
         expect(UPLOADED_GRAPHIC_INDEX_START).toBe(1_000_000);
         // Original game graphics reach up to 320151, well below 1_000_000
-        expect(UPLOADED_GRAPHIC_INDEX_START).toBeGreaterThan(320151);
+        expect(UPLOADED_GRAPHIC_INDEX_START).toBeGreaterThan(
+            MAX_ENGINE_GRAPHIC_INDEX,
+        );
+    });
+
+    it("should accept an original engine graphic without a database lookup", async () => {
+        const result = await validatePaletteEntry({
+            graphics: [MAX_ENGINE_GRAPHIC_INDEX],
+        });
+
+        expect(result).toEqual({ valid: true });
+        expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    it("should reject graphic indices outside the original engine range", async () => {
+        const result = await validatePaletteEntry({
+            graphics: [MAX_ENGINE_GRAPHIC_INDEX + 1],
+        });
+
+        expect(result.valid).toBe(false);
+        expect(result.reason).toContain("Indice de grafico invalido");
+        expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    it("should validate uploaded graphics against the database", async () => {
+        const query = vi
+            .spyOn(pool, "query")
+            .mockResolvedValue({ rowCount: 1 } as never);
+
+        const result = await validatePaletteEntry({
+            graphics: [UPLOADED_GRAPHIC_INDEX_START],
+        });
+
+        expect(result).toEqual({ valid: true });
+        expect(query).toHaveBeenCalledWith(
+            expect.stringContaining("game_uploaded_graphics"),
+            [UPLOADED_GRAPHIC_INDEX_START],
+        );
+    });
+
+    it("should reject an uploaded graphic that is not registered", async () => {
+        vi.spyOn(pool, "query").mockResolvedValue({ rowCount: 0 } as never);
+
+        const result = await validatePaletteEntry({
+            graphics: [UPLOADED_GRAPHIC_INDEX_START + 1],
+        });
+
+        expect(result.valid).toBe(false);
+        expect(result.reason).toContain("no existe");
     });
 });

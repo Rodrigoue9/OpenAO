@@ -9,6 +9,9 @@ import { validatePngUpload } from "../lib/pngValidation";
  */
 export const UPLOADED_GRAPHIC_INDEX_START = 1_000_000;
 
+/** Ultimo indice de grafico incluido no engine original. */
+export const MAX_ENGINE_GRAPHIC_INDEX = 320_151;
+
 /** Los mapas del juego son de 100x100. */
 export const MAP_SIZE = 100;
 
@@ -243,7 +246,10 @@ export async function validatePaletteEntry(
                     reason: `El grafico ${grhIndex} no existe en el motor ni en assets subidos.`,
                 };
             }
-        } else if (grhIndex <= 0) {
+        } else if (
+            grhIndex <= 0 ||
+            grhIndex > MAX_ENGINE_GRAPHIC_INDEX
+        ) {
             return {
                 valid: false,
                 reason: `Indice de grafico invalido: ${grhIndex}.`,
@@ -293,21 +299,13 @@ export async function paintTiles(
         await client.query("BEGIN");
 
         for (const tile of tiles) {
-            // Un grafico referenciado tiene que existir: o es uno original del
-            // juego (por debajo del rango de subidos) o uno que subimos.
-            if (
-                tile.grhIndex != null &&
-                tile.grhIndex >= UPLOADED_GRAPHIC_INDEX_START
-            ) {
-                const exists = await client.query(
-                    `SELECT 1 FROM game_uploaded_graphics WHERE grh_index = $1 LIMIT 1`,
-                    [tile.grhIndex],
-                );
+            if (tile.grhIndex != null) {
+                const validation = await validatePaletteEntry({
+                    graphics: [tile.grhIndex],
+                });
 
-                if (exists.rowCount === 0) {
-                    throw new Error(
-                        `El grafico ${tile.grhIndex} no existe. Subilo antes de usarlo.`,
-                    );
+                if (!validation.valid) {
+                    throw new Error(validation.reason);
                 }
             }
 
