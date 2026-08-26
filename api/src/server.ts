@@ -98,14 +98,23 @@ import {
 import {
     clearTile,
     discardDrafts,
+    doorStateSchema,
     getGraphicContent,
     getMapStatus,
     listGraphics,
+    listMapDoors,
+    listMapObjects,
     listMapOverrides,
+    mapObjectSchema,
     paintTiles,
     paintTilesSchema,
+    placeMapObject,
+    placeStructure,
     publishMap,
+    removeMapObject,
     revertMap,
+    setDoorState,
+    structurePlacementSchema,
     uploadGraphic,
 } from "./repositories/worldBuilder";
 import { MAX_PNG_BYTES } from "./lib/pngValidation";
@@ -909,6 +918,152 @@ app.delete(
     },
 );
 
+app.put("/admin/game-data/maps/:mapNum/objects", async (request, response) => {
+    try {
+        const authorized = await requireAdminEmailSession(request, response);
+        if (!authorized) return;
+
+        const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+        const body =
+            request.body && typeof request.body === "object"
+                ? request.body
+                : {};
+        const parsed = mapObjectSchema.safeParse({ ...body, mapNum });
+
+        if (!parsed.success) {
+            response
+                .status(400)
+                .json({ error: JSON.stringify(parsed.error.issues) });
+            return;
+        }
+
+        response.json(
+            await placeMapObject(
+                parsed.data,
+                authorized.session.account._id,
+            ),
+        );
+    } catch (error) {
+        const message =
+            error instanceof Error ? error.message : "Unexpected error";
+        response.status(400).json({ error: message });
+    }
+});
+
+app.delete(
+    "/admin/game-data/maps/:mapNum/objects/:x/:y",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+            const x = Number.parseInt(request.params.x ?? "", 10);
+            const y = Number.parseInt(request.params.y ?? "", 10);
+
+            if (![mapNum, x, y].every(Number.isInteger)) {
+                response.status(400).json({ error: "Parametros invalidos." });
+                return;
+            }
+
+            response.json(await removeMapObject(mapNum, x, y));
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+app.put(
+    "/admin/game-data/maps/:mapNum/structures",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+            const body =
+                request.body && typeof request.body === "object"
+                    ? request.body
+                    : {};
+            const parsed = structurePlacementSchema.safeParse({
+                ...body,
+                mapNum,
+            });
+
+            if (!parsed.success) {
+                response
+                    .status(400)
+                    .json({ error: JSON.stringify(parsed.error.issues) });
+                return;
+            }
+
+            response.json(
+                await placeStructure(
+                    parsed.data,
+                    authorized.session.account._id,
+                ),
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+app.put(
+    "/admin/game-data/maps/:mapNum/doors/:x/:y",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+            const x = Number.parseInt(request.params.x ?? "", 10);
+            const y = Number.parseInt(request.params.y ?? "", 10);
+            const body =
+                request.body && typeof request.body === "object"
+                    ? request.body
+                    : {};
+            const parsed = doorStateSchema.safeParse({
+                ...body,
+                mapNum,
+                x,
+                y,
+            });
+
+            if (!parsed.success) {
+                response
+                    .status(400)
+                    .json({ error: JSON.stringify(parsed.error.issues) });
+                return;
+            }
+
+            response.json(
+                await setDoorState(
+                    parsed.data,
+                    authorized.session.account._id,
+                ),
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
 /**
  * Devuelve los tiles modificados de un mapa. El cliente carga el mapa base
  * desde el archivo estatico y aplica estos cambios encima, asi no hay que
@@ -938,11 +1093,13 @@ app.get("/maps/:mapNum/overrides", async (request, response) => {
             // Sin sesion valida se sirve lo publicado, que es el caso normal.
         }
 
-        response.json({
-            mapNum,
-            includeDrafts,
-            overrides: await listMapOverrides(mapNum, includeDrafts),
-        });
+        const [overrides, objects, doors] = await Promise.all([
+            listMapOverrides(mapNum, includeDrafts),
+            listMapObjects(mapNum, includeDrafts),
+            listMapDoors(mapNum, includeDrafts),
+        ]);
+
+        response.json({ mapNum, includeDrafts, overrides, objects, doors });
     } catch (error) {
         const message =
             error instanceof Error ? error.message : "Unexpected error";

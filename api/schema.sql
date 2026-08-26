@@ -625,5 +625,42 @@ $migracion$;
 
 CREATE INDEX IF NOT EXISTS idx_game_map_tile_overrides_map
     ON game_map_tile_overrides(map_num, status);
+
+-- Los objetos del piso no son capas graficas: el runtime los representa con
+-- objIndex + amount. Guardarlos aparte evita que pisen la capa 2 del terreno.
+CREATE TABLE IF NOT EXISTS game_map_object_overrides (
+    map_num INTEGER NOT NULL CHECK (map_num > 0),
+    x INTEGER NOT NULL CHECK (x BETWEEN 1 AND 100),
+    y INTEGER NOT NULL CHECK (y BETWEEN 1 AND 100),
+    obj_index INTEGER NOT NULL REFERENCES game_objects(id) ON DELETE RESTRICT,
+    amount INTEGER NOT NULL DEFAULT 1 CHECK (amount BETWEEN 1 AND 10000),
+    updated_by_account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+    PRIMARY KEY (map_num, x, y, status)
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_map_object_overrides_map
+    ON game_map_object_overrides(map_num, status);
+
+-- Las puertas tienen identidad y estado propios. Una tabla separada impide
+-- que una puerta sobrescriba silenciosamente una estructura de la capa 3.
+CREATE TABLE IF NOT EXISTS game_map_door_overrides (
+    map_num INTEGER NOT NULL CHECK (map_num > 0),
+    x INTEGER NOT NULL CHECK (x BETWEEN 1 AND 100),
+    y INTEGER NOT NULL CHECK (y BETWEEN 1 AND 100),
+    open_grh_index INTEGER NOT NULL CHECK (open_grh_index > 0),
+    closed_grh_index INTEGER NOT NULL CHECK (closed_grh_index > 0),
+    is_open BOOLEAN NOT NULL,
+    blocked BOOLEAN NOT NULL,
+    updated_by_account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+    CHECK (blocked = (NOT is_open)),
+    PRIMARY KEY (map_num, x, y, status)
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_map_door_overrides_map
+    ON game_map_door_overrides(map_num, status);
 CREATE INDEX IF NOT EXISTS idx_game_uploaded_graphics_created_at
     ON game_uploaded_graphics(created_at DESC);

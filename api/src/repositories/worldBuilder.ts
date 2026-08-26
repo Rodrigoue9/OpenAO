@@ -203,6 +203,24 @@ export type MapTileOverride = {
     status: "draft" | "published";
 };
 
+export type MapObjectOverride = {
+    x: number;
+    y: number;
+    objIndex: number;
+    amount: number;
+    status: "draft" | "published";
+};
+
+export type MapDoorOverride = {
+    x: number;
+    y: number;
+    openGrhIndex: number;
+    closedGrhIndex: number;
+    isOpen: boolean;
+    blocked: boolean;
+    status: "draft" | "published";
+};
+
 /**
  * Pinta tiles como BORRADOR. No los ve ningun jugador hasta publicar.
  *
@@ -311,6 +329,71 @@ export async function listMapOverrides(
     }));
 }
 
+export async function listMapObjects(
+    mapNum: number,
+    includeDrafts = false,
+): Promise<MapObjectOverride[]> {
+    const query = includeDrafts
+        ? `SELECT DISTINCT ON (x, y) x, y, obj_index, amount, status
+           FROM game_map_object_overrides
+           WHERE map_num = $1
+           ORDER BY x, y, status ASC`
+        : `SELECT x, y, obj_index, amount, status
+           FROM game_map_object_overrides
+           WHERE map_num = $1 AND status = 'published'
+           ORDER BY y, x`;
+    const result = await pool.query<{
+        x: number;
+        y: number;
+        obj_index: number;
+        amount: number;
+        status: string;
+    }>(query, [mapNum]);
+
+    return result.rows.map((row) => ({
+        x: row.x,
+        y: row.y,
+        objIndex: row.obj_index,
+        amount: row.amount,
+        status: row.status as "draft" | "published",
+    }));
+}
+
+export async function listMapDoors(
+    mapNum: number,
+    includeDrafts = false,
+): Promise<MapDoorOverride[]> {
+    const query = includeDrafts
+        ? `SELECT DISTINCT ON (x, y) x, y, open_grh_index, closed_grh_index,
+                  is_open, blocked, status
+           FROM game_map_door_overrides
+           WHERE map_num = $1
+           ORDER BY x, y, status ASC`
+        : `SELECT x, y, open_grh_index, closed_grh_index, is_open, blocked, status
+           FROM game_map_door_overrides
+           WHERE map_num = $1 AND status = 'published'
+           ORDER BY y, x`;
+    const result = await pool.query<{
+        x: number;
+        y: number;
+        open_grh_index: number;
+        closed_grh_index: number;
+        is_open: boolean;
+        blocked: boolean;
+        status: string;
+    }>(query, [mapNum]);
+
+    return result.rows.map((row) => ({
+        x: row.x,
+        y: row.y,
+        openGrhIndex: row.open_grh_index,
+        closedGrhIndex: row.closed_grh_index,
+        isOpen: row.is_open,
+        blocked: row.blocked,
+        status: row.status as "draft" | "published",
+    }));
+}
+
 /** Publica los borradores de un mapa: a partir de aca los ven los jugadores. */
 export async function publishMap(
     mapNum: number,
@@ -321,7 +404,7 @@ export async function publishMap(
     try {
         await client.query("BEGIN");
 
-        const result = await client.query(
+        const tileResult = await client.query(
             `INSERT INTO game_map_tile_overrides
                  (map_num, x, y, layer, grh_index, blocked, status, updated_by_account_id, updated_at)
              SELECT map_num, x, y, layer, grh_index, blocked, 'published', $2, NOW()
@@ -335,14 +418,59 @@ export async function publishMap(
             [mapNum, accountId],
         );
 
+        const objectResult = await client.query(
+            `INSERT INTO game_map_object_overrides
+                 (map_num, x, y, obj_index, amount, status, updated_by_account_id, updated_at)
+             SELECT map_num, x, y, obj_index, amount, 'published', $2, NOW()
+             FROM game_map_object_overrides
+             WHERE map_num = $1 AND status = 'draft'
+             ON CONFLICT (map_num, x, y, status) DO UPDATE
+             SET obj_index = EXCLUDED.obj_index,
+                 amount = EXCLUDED.amount,
+                 updated_by_account_id = EXCLUDED.updated_by_account_id,
+                 updated_at = NOW()`,
+            [mapNum, accountId],
+        );
+
+        const doorResult = await client.query(
+            `INSERT INTO game_map_door_overrides
+                 (map_num, x, y, open_grh_index, closed_grh_index, is_open, blocked,
+                  status, updated_by_account_id, updated_at)
+             SELECT map_num, x, y, open_grh_index, closed_grh_index, is_open,
+                    blocked, 'published', $2, NOW()
+             FROM game_map_door_overrides
+             WHERE map_num = $1 AND status = 'draft'
+             ON CONFLICT (map_num, x, y, status) DO UPDATE
+             SET open_grh_index = EXCLUDED.open_grh_index,
+                 closed_grh_index = EXCLUDED.closed_grh_index,
+                 is_open = EXCLUDED.is_open,
+                 blocked = EXCLUDED.blocked,
+                 updated_by_account_id = EXCLUDED.updated_by_account_id,
+                 updated_at = NOW()`,
+            [mapNum, accountId],
+        );
+
         await client.query(
             `DELETE FROM game_map_tile_overrides WHERE map_num = $1 AND status = 'draft'`,
+            [mapNum],
+        );
+        await client.query(
+            `DELETE FROM game_map_object_overrides WHERE map_num = $1 AND status = 'draft'`,
+            [mapNum],
+        );
+        await client.query(
+            `DELETE FROM game_map_door_overrides WHERE map_num = $1 AND status = 'draft'`,
             [mapNum],
         );
 
         await client.query("COMMIT");
 
-        return { published: result.rowCount ?? 0 };
+        return {
+            published:
+                (tileResult.rowCount ?? 0) +
+                (objectResult.rowCount ?? 0) +
+                (doorResult.rowCount ?? 0),
+        };
     } catch (error) {
         await client.query("ROLLBACK");
         throw error;
@@ -355,12 +483,36 @@ export async function publishMap(
 export async function discardDrafts(
     mapNum: number,
 ): Promise<{ discarded: number }> {
-    const result = await pool.query(
-        `DELETE FROM game_map_tile_overrides WHERE map_num = $1 AND status = 'draft'`,
-        [mapNum],
-    );
+    const client = await pool.connect();
 
-    return { discarded: result.rowCount ?? 0 };
+    try {
+        await client.query("BEGIN");
+        const tiles = await client.query(
+            `DELETE FROM game_map_tile_overrides WHERE map_num = $1 AND status = 'draft'`,
+            [mapNum],
+        );
+        const objects = await client.query(
+            `DELETE FROM game_map_object_overrides WHERE map_num = $1 AND status = 'draft'`,
+            [mapNum],
+        );
+        const doors = await client.query(
+            `DELETE FROM game_map_door_overrides WHERE map_num = $1 AND status = 'draft'`,
+            [mapNum],
+        );
+        await client.query("COMMIT");
+
+        return {
+            discarded:
+                (tiles.rowCount ?? 0) +
+                (objects.rowCount ?? 0) +
+                (doors.rowCount ?? 0),
+        };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
 }
 
 /**
@@ -370,12 +522,36 @@ export async function discardDrafts(
 export async function revertMap(
     mapNum: number,
 ): Promise<{ reverted: number }> {
-    const result = await pool.query(
-        `DELETE FROM game_map_tile_overrides WHERE map_num = $1`,
-        [mapNum],
-    );
+    const client = await pool.connect();
 
-    return { reverted: result.rowCount ?? 0 };
+    try {
+        await client.query("BEGIN");
+        const tiles = await client.query(
+            `DELETE FROM game_map_tile_overrides WHERE map_num = $1`,
+            [mapNum],
+        );
+        const objects = await client.query(
+            `DELETE FROM game_map_object_overrides WHERE map_num = $1`,
+            [mapNum],
+        );
+        const doors = await client.query(
+            `DELETE FROM game_map_door_overrides WHERE map_num = $1`,
+            [mapNum],
+        );
+        await client.query("COMMIT");
+
+        return {
+            reverted:
+                (tiles.rowCount ?? 0) +
+                (objects.rowCount ?? 0) +
+                (doors.rowCount ?? 0),
+        };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
 }
 
 /** Cuantos tiles tiene el mapa en cada estado, para mostrar en la UI. */
@@ -385,9 +561,23 @@ export async function getMapStatus(mapNum: number): Promise<{
     published: number;
 }> {
     const result = await pool.query<{ status: string; count: string }>(
-        `SELECT status, COUNT(*)::text AS count
-         FROM game_map_tile_overrides
-         WHERE map_num = $1
+        `SELECT status, SUM(entry_count)::text AS count
+         FROM (
+             SELECT status, COUNT(*) AS entry_count
+             FROM game_map_tile_overrides
+             WHERE map_num = $1
+             GROUP BY status
+             UNION ALL
+             SELECT status, COUNT(*) AS entry_count
+             FROM game_map_object_overrides
+             WHERE map_num = $1
+             GROUP BY status
+             UNION ALL
+             SELECT status, COUNT(*) AS entry_count
+             FROM game_map_door_overrides
+             WHERE map_num = $1
+             GROUP BY status
+         ) AS entries
          GROUP BY status`,
         [mapNum],
     );
@@ -432,9 +622,20 @@ export const mapObjectSchema = z.object({
 
 export type MapObjectInput = z.infer<typeof mapObjectSchema>;
 
+export const MIN_STRUCTURE_OFFSET = 1 - MAP_SIZE;
+export const MAX_STRUCTURE_OFFSET = MAP_SIZE - 1;
+
 export const structureTileSchema = z.object({
-    offsetX: z.coerce.number().int(),
-    offsetY: z.coerce.number().int(),
+    offsetX: z.coerce
+        .number()
+        .int()
+        .min(MIN_STRUCTURE_OFFSET)
+        .max(MAX_STRUCTURE_OFFSET),
+    offsetY: z.coerce
+        .number()
+        .int()
+        .min(MIN_STRUCTURE_OFFSET)
+        .max(MAX_STRUCTURE_OFFSET),
     layer: z.coerce.number().int().min(3).max(4),
     grhIndex: z.coerce.number().int().positive(),
     blocked: z.boolean().default(false),
@@ -483,14 +684,22 @@ export async function placeMapObject(
     }
 
     await pool.query(
-        `INSERT INTO game_map_tile_overrides
-             (map_num, x, y, layer, grh_index, blocked, status, updated_by_account_id, updated_at)
-         VALUES ($1, $2, $3, 2, $4, NULL, 'draft', $5, NOW())
-         ON CONFLICT (map_num, x, y, layer, status) DO UPDATE
-         SET grh_index = EXCLUDED.grh_index,
+        `INSERT INTO game_map_object_overrides
+             (map_num, x, y, obj_index, amount, status, updated_by_account_id, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'draft', $6, NOW())
+         ON CONFLICT (map_num, x, y, status) DO UPDATE
+         SET obj_index = EXCLUDED.obj_index,
+             amount = EXCLUDED.amount,
              updated_by_account_id = EXCLUDED.updated_by_account_id,
              updated_at = NOW()`,
-        [parsed.mapNum, parsed.x, parsed.y, parsed.objIndex, accountId],
+        [
+            parsed.mapNum,
+            parsed.x,
+            parsed.y,
+            parsed.objIndex,
+            parsed.amount,
+            accountId,
+        ],
     );
 
     return {
@@ -512,8 +721,8 @@ export async function removeMapObject(
     y: number,
 ): Promise<{ ok: boolean }> {
     const result = await pool.query(
-        `DELETE FROM game_map_tile_overrides
-         WHERE map_num = $1 AND x = $2 AND y = $3 AND layer = 2 AND status = 'draft'`,
+        `DELETE FROM game_map_object_overrides
+         WHERE map_num = $1 AND x = $2 AND y = $3 AND status = 'draft'`,
         [mapNum, x, y],
     );
 
@@ -541,6 +750,22 @@ export async function placeStructure(
                 throw new Error(
                     `Tile fuera de limites: (${targetX}, ${targetY}). El mapa es de ${MAP_SIZE}x${MAP_SIZE}.`,
                 );
+            }
+
+            if (tile.layer === 3) {
+                const doorConflict = await client.query(
+                    `SELECT 1 FROM game_map_door_overrides
+                     WHERE map_num = $1 AND x = $2 AND y = $3
+                       AND status IN ('draft', 'published')
+                     LIMIT 1`,
+                    [parsed.mapNum, targetX, targetY],
+                );
+
+                if ((doorConflict.rowCount ?? 0) > 0) {
+                    throw new Error(
+                        `La estructura colisiona con una puerta en (${targetX}, ${targetY}).`,
+                    );
+                }
             }
 
             await client.query(
@@ -574,20 +799,58 @@ export async function setDoorState(
     accountId: string,
 ): Promise<{ ok: true; isOpen: boolean; blocked: boolean }> {
     const parsed = doorStateSchema.parse(input);
-    const grhIndex = parsed.isOpen ? parsed.openGrhIndex : parsed.closedGrhIndex;
     const blocked = !parsed.isOpen; // Si está cerrada, bloquea el paso
+    const client = await pool.connect();
 
-    await pool.query(
-        `INSERT INTO game_map_tile_overrides
-             (map_num, x, y, layer, grh_index, blocked, status, updated_by_account_id, updated_at)
-         VALUES ($1, $2, $3, 3, $4, $5, 'draft', $6, NOW())
-         ON CONFLICT (map_num, x, y, layer, status) DO UPDATE
-         SET grh_index = EXCLUDED.grh_index,
-             blocked = EXCLUDED.blocked,
-             updated_by_account_id = EXCLUDED.updated_by_account_id,
-             updated_at = NOW()`,
-        [parsed.mapNum, parsed.x, parsed.y, grhIndex, blocked, accountId],
-    );
+    try {
+        await client.query("BEGIN");
+
+        const structureConflict = await client.query(
+            `SELECT 1 FROM game_map_tile_overrides
+             WHERE map_num = $1 AND x = $2 AND y = $3 AND layer = 3
+               AND grh_index IS NOT NULL
+               AND status IN ('draft', 'published')
+             LIMIT 1`,
+            [parsed.mapNum, parsed.x, parsed.y],
+        );
+
+        if ((structureConflict.rowCount ?? 0) > 0) {
+            throw new Error(
+                `La puerta colisiona con una estructura en (${parsed.x}, ${parsed.y}).`,
+            );
+        }
+
+        await client.query(
+            `INSERT INTO game_map_door_overrides
+                 (map_num, x, y, open_grh_index, closed_grh_index, is_open, blocked,
+                  status, updated_by_account_id, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, NOW())
+             ON CONFLICT (map_num, x, y, status) DO UPDATE
+             SET open_grh_index = EXCLUDED.open_grh_index,
+                 closed_grh_index = EXCLUDED.closed_grh_index,
+                 is_open = EXCLUDED.is_open,
+                 blocked = EXCLUDED.blocked,
+                 updated_by_account_id = EXCLUDED.updated_by_account_id,
+                 updated_at = NOW()`,
+            [
+                parsed.mapNum,
+                parsed.x,
+                parsed.y,
+                parsed.openGrhIndex,
+                parsed.closedGrhIndex,
+                parsed.isOpen,
+                blocked,
+                accountId,
+            ],
+        );
+
+        await client.query("COMMIT");
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
 
     return { ok: true, isOpen: parsed.isOpen, blocked };
 }
