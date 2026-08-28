@@ -542,8 +542,13 @@ wsServer?.on("connection", function (ws: RuntimeClient, request: RuntimeConnecti
                 return;
             }
 
+            const decodedPacket = pkg.decodeClientPacket(data as PacketPayload);
             pkg.setData(data as PacketPayload);
             const packageID = pkg.getPackageID();
+
+            if (decodedPacket.id !== packageID) {
+                return;
+            }
 
             trackClientActivity(ws, packageID);
 
