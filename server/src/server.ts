@@ -14,6 +14,10 @@ import type {
     RuntimeNpcs,
 } from "./types/runtime";
 import { getClientById } from "./runtimeRegistry";
+import {
+    getDuplicateAccountIdlePenalizedClientIds,
+    type DuplicateAccountPolicyEntry,
+} from "./connectionPolicy";
 import * as safeZone from "./safeZone";
 import {
     gracefulShutdown,
@@ -35,7 +39,7 @@ const JAIL_RELEASE_Y = 67;
 const FLOOR_ITEM_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const FLOOR_ITEM_SWEEP_WARNING_MS = 60 * 1000;
 const FLOOR_ITEM_SWEEP_CHECK_MS = 5000;
-const DUPLICATE_IP_IDLE_TIMEOUT_MS = 60 * 1000;
+const DUPLICATE_ACCOUNT_IDLE_TIMEOUT_MS = 60 * 1000;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5000;
 const SHUTDOWN_CLIENT_MESSAGE = "El servidor se está reiniciando. Podrás volver a entrar en breve.";
 
@@ -547,8 +551,13 @@ wsServer?.on("connection", function (ws: RuntimeClient, request: RuntimeConnecti
                 return;
             }
 
+            const decodedPacket = pkg.decodeClientPacket(data as PacketPayload);
             pkg.setData(data as PacketPayload);
             const packageID = pkg.getPackageID();
+
+            if (decodedPacket.id !== packageID) {
+                return;
+            }
 
             trackClientActivity(ws, packageID);
 
@@ -773,7 +782,7 @@ function processIdleCharactersTick(now: number) {
         return;
     }
 
-    const penalizedClientIds = getDuplicateIpIdlePenalizedClientIds();
+    const penalizedClientIds = getDuplicateAccountIdlePenalizedRuntimeClientIds();
 
     for (const idUser in vars.clients) {
         const client = vars.clients[idUser] as RuntimeClient | undefined;
@@ -798,9 +807,11 @@ function processIdleCharactersTick(now: number) {
             continue;
         }
 
-        const isDuplicateIpScout = penalizedClientIds.has(idUser);
-        const effectiveIdleTimeoutMs = isDuplicateIpScout ? DUPLICATE_IP_IDLE_TIMEOUT_MS : idleCharacterTimeoutMs;
-        const idleReferenceAt = isDuplicateIpScout
+        const isDuplicateAccountScout = penalizedClientIds.has(idUser);
+        const effectiveIdleTimeoutMs = isDuplicateAccountScout
+            ? DUPLICATE_ACCOUNT_IDLE_TIMEOUT_MS
+            : idleCharacterTimeoutMs;
+        const idleReferenceAt = isDuplicateAccountScout
             ? getScoutIdleReferenceAt(client, user)
             : getClientLivenessReferenceAt(client, now);
 
@@ -839,16 +850,8 @@ function getScoutIdleReferenceAt(client: RuntimeClient, user: ServerCharacter): 
     return Number(client.connectedAt ?? Date.now());
 }
 
-function getDuplicateIpIdlePenalizedClientIds(): Set<string> {
-    const penalizedClientIds = new Set<string>();
-    const clientsByIp = new Map<
-        string,
-        {
-            idUser: string;
-            connectedAt: number;
-            miningActive: boolean;
-        }[]
-    >();
+function getDuplicateAccountIdlePenalizedRuntimeClientIds(): Set<string> {
+    const entries: DuplicateAccountPolicyEntry[] = [];
 
     for (const idUser in vars.clients) {
         const client = vars.clients[idUser] as RuntimeClient | undefined;
@@ -858,41 +861,14 @@ function getDuplicateIpIdlePenalizedClientIds(): Set<string> {
             continue;
         }
 
-        const clientIp = socket.getIp(client);
-
-        if (!clientIp) {
-            continue;
-        }
-
-        const clientsForIp = clientsByIp.get(clientIp) ?? [];
-
-        clientsForIp.push({
+        entries.push({
             idUser,
-            connectedAt: Number(client.connectedAt ?? 0),
+            accountId: user.idAccount ?? null,
             miningActive: Boolean(user.harvesting?.active && user.harvesting?.skill === "mining"),
         });
-        clientsByIp.set(clientIp, clientsForIp);
     }
 
-    for (const clientsForIp of clientsByIp.values()) {
-        if (clientsForIp.length < 2) {
-            continue;
-        }
-
-        const hasActiveMiner = clientsForIp.some((entry) => entry.miningActive);
-
-        if (!hasActiveMiner) {
-            continue;
-        }
-
-        for (const entry of clientsForIp) {
-            if (!entry.miningActive) {
-                penalizedClientIds.add(entry.idUser);
-            }
-        }
-    }
-
-    return penalizedClientIds;
+    return getDuplicateAccountIdlePenalizedClientIds(entries);
 }
 
 function processPendingLogoutTick(now: number) {
@@ -1030,26 +1006,4 @@ createDynamicScheduler(
 );
 
 void saveOnlineStatsSnapshot();
-
-function getGracefulShutdownDependencies(): GracefulShutdownDependencies {
-    return {
-        clients: vars.clients as Record<string, ShutdownClient | undefined>,
-        tokenAuth: vars.tokenAuth,
-        fetchUrl: funct.fetchUrl,
-        exit: (code) => process.exit(code),
-        setTimeout,
-        clearTimeout,
-        writeOut: (message) => process.stdout.write(message),
-        writeErr: (message) => process.stderr.write(message),
-    };
-}
-
-export { gracefulShutdown };
-
-process.on("SIGINT", () =>
-    void gracefulShutdown("SIGINT", getGracefulShutdownDependencies()),
-);
-process.on("SIGTERM", () =>
-    void gracefulShutdown("SIGTERM", getGracefulShutdownDependencies()),
-);
 
