@@ -3200,5 +3200,3 @@ app.delete("/admin/game-data/maps/:mapNum/npcs/:x/:y", async (request, response)
         response.status(400).json({ error: message });
     }
 });
-
-

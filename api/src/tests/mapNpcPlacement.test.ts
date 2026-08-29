@@ -2,31 +2,32 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import { afterAll, beforeAll, describe, test } from "vitest";
 import {
     MAX_NPCS_PER_MAP,
     loadMapNpcPlacements,
     moveMapNpc,
     placeMapNpc,
     removeMapNpc,
-    saveMapNpcPlacements,
-    sortPlacements,
-    type MapNpcPlacement,
 } from "../lib/mapNpcStorage";
 
-test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openao-npc-test-"));
+describe("mapNpcPlacement - colocación y persistencia de NPCs (#8)", () => {
+    let tempDir: string;
 
-    t.after(async () => {
+    beforeAll(async () => {
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openao-npc-test-"));
+    });
+
+    afterAll(async () => {
         await fs.rm(tempDir, { recursive: true, force: true });
     });
 
-    await t.test("MAX_NPCS_PER_MAP constante nombrada exportada", () => {
+    test("MAX_NPCS_PER_MAP constante nombrada exportada", () => {
         assert.equal(typeof MAX_NPCS_PER_MAP, "number");
         assert.equal(MAX_NPCS_PER_MAP, 50);
     });
 
-    await t.test("placeMapNpc - coloca un NPC exitosamente y persiste en disco", async () => {
+    test("placeMapNpc - coloca un NPC exitosamente y persiste en disco", async () => {
         const result = await placeMapNpc(tempDir, {
             mapNum: 1,
             x: 50,
@@ -53,7 +54,7 @@ test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
         assert.equal(fromDisk[0].y, 50);
     });
 
-    await t.test("placeMapNpc - rechaza coordenadas fuera de rango (1-100)", async () => {
+    test("placeMapNpc - rechaza coordenadas fuera de rango (1-100)", async () => {
         const resZero = await placeMapNpc(tempDir, { mapNum: 1, x: 0, y: 50, npcIndex: 1 });
         assert.equal(resZero.ok, false);
 
@@ -61,7 +62,7 @@ test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
         assert.equal(resOver.ok, false);
     });
 
-    await t.test("placeMapNpc - rechaza npcIndex inválido o inexistente", async () => {
+    test("placeMapNpc - rechaza npcIndex inválido o inexistente", async () => {
         const resInvalid = await placeMapNpc(tempDir, { mapNum: 1, x: 10, y: 10, npcIndex: -5 });
         assert.equal(resInvalid.ok, false);
 
@@ -76,7 +77,7 @@ test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
         }
     });
 
-    await t.test("placeMapNpc - rechaza colocación sobre tile bloqueado", async () => {
+    test("placeMapNpc - rechaza colocación sobre tile bloqueado", async () => {
         const blockedTile = (x: number, y: number) => x === 20 && y === 20;
         const res = await placeMapNpc(
             tempDir,
@@ -90,7 +91,7 @@ test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
         }
     });
 
-    await t.test("placeMapNpc - rechaza apilar dos NPCs en el mismo tile", async () => {
+    test("placeMapNpc - rechaza apilar dos NPCs en el mismo tile", async () => {
         await placeMapNpc(tempDir, { mapNum: 2, x: 15, y: 15, npcIndex: 1 });
         const resDup = await placeMapNpc(tempDir, { mapNum: 2, x: 15, y: 15, npcIndex: 2 });
 
@@ -100,7 +101,7 @@ test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
         }
     });
 
-    await t.test("placeMapNpc - respeta el límite máximo por mapa", async () => {
+    test("placeMapNpc - respeta el límite máximo por mapa", async () => {
         const mapNum = 3;
         for (let i = 1; i <= 3; i++) {
             await placeMapNpc(tempDir, { mapNum, x: i, y: 10, npcIndex: 1 }, { maxNpcs: 3 });
@@ -117,7 +118,28 @@ test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
         }
     });
 
-    await t.test("moveMapNpc - mueve un NPC existente a otra coordenada válida", async () => {
+    test("placeMapNpc - serializa escrituras concurrentes sin perder NPCs", async () => {
+        const mapNum = 7;
+        const [first, second] = await Promise.all([
+            placeMapNpc(tempDir, { mapNum, x: 10, y: 20, npcIndex: 1 }),
+            placeMapNpc(tempDir, { mapNum, x: 11, y: 20, npcIndex: 2 }),
+        ]);
+
+        assert.equal(first.ok, true);
+        assert.equal(second.ok, true);
+
+        const persisted = await loadMapNpcPlacements(tempDir, mapNum);
+        assert.equal(persisted.length, 2);
+        assert.deepEqual(
+            persisted.map(({ x, y, npcIndex }) => ({ x, y, npcIndex })),
+            [
+                { x: 10, y: 20, npcIndex: 1 },
+                { x: 11, y: 20, npcIndex: 2 },
+            ],
+        );
+    });
+
+    test("moveMapNpc - mueve un NPC existente a otra coordenada válida", async () => {
         const mapNum = 4;
         await placeMapNpc(tempDir, { mapNum, x: 10, y: 10, npcIndex: 5 });
 
@@ -130,7 +152,7 @@ test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
         assert.equal(loaded[0].y, 14);
     });
 
-    await t.test("moveMapNpc - mover a la misma casilla actual no falla (caso autodesplazamiento)", async () => {
+    test("moveMapNpc - mover a la misma casilla actual no falla (caso autodesplazamiento)", async () => {
         const mapNum = 4;
         const selfMoveRes = await moveMapNpc(tempDir, mapNum, 12, 14, 12, 14);
         assert.equal(selfMoveRes.ok, true);
@@ -141,7 +163,7 @@ test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
         assert.equal(loaded[0].y, 14);
     });
 
-    await t.test("moveMapNpc - rechaza mover a un tile bloqueado u ocupado", async () => {
+    test("moveMapNpc - rechaza mover a un tile bloqueado u ocupado", async () => {
         const mapNum = 5;
         await placeMapNpc(tempDir, { mapNum, x: 10, y: 10, npcIndex: 1 });
         await placeMapNpc(tempDir, { mapNum, x: 11, y: 10, npcIndex: 2 });
@@ -161,7 +183,7 @@ test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
         assert.equal(resBlocked.ok, false);
     });
 
-    await t.test("removeMapNpc - quita un NPC y actualiza el archivo", async () => {
+    test("removeMapNpc - quita un NPC y actualiza el archivo", async () => {
         const mapNum = 6;
         await placeMapNpc(tempDir, { mapNum, x: 5, y: 5, npcIndex: 1 });
         await placeMapNpc(tempDir, { mapNum, x: 6, y: 6, npcIndex: 2 });

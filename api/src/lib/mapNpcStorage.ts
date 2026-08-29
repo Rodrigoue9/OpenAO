@@ -21,23 +21,23 @@ export async function withMapLock<T>(
     mapNum: number,
     operation: () => Promise<T>,
 ): Promise<T> {
-    const currentLock = mapMutexes.get(mapNum) ?? Promise.resolve();
+    const previousLock = mapMutexes.get(mapNum) ?? Promise.resolve();
     let releaseLock: () => void = () => {};
-    const nextLock = new Promise<void>((resolve) => {
+    const operationLock = new Promise<void>((resolve) => {
         releaseLock = resolve;
     });
+    const queuedLock = previousLock
+        .catch(() => undefined)
+        .then(() => operationLock);
 
-    mapMutexes.set(
-        mapNum,
-        currentLock.then(() => nextLock).catch(() => nextLock),
-    );
+    mapMutexes.set(mapNum, queuedLock);
 
     try {
-        await currentLock;
+        await previousLock.catch(() => undefined);
         return await operation();
     } finally {
         releaseLock();
-        if (mapMutexes.get(mapNum) === nextLock) {
+        if (mapMutexes.get(mapNum) === queuedLock) {
             mapMutexes.delete(mapNum);
         }
     }
