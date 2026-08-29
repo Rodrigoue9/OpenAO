@@ -96,13 +96,11 @@ import {
     upsertGameBalance,
 } from "./repositories/gameBalance";
 import {
-    canAccountEditMap,
     clearTile,
     discardDrafts,
     getGraphicContent,
     getMapStatus,
     getMapTerrainPalette,
-    isMapProtected,
     listGraphics,
     listMapOverrides,
     listMapTileEntities,
@@ -865,20 +863,6 @@ app.put("/admin/game-data/maps/:mapNum/tiles", async (request, response) => {
             return;
         }
 
-        const allowOverride = request.headers["x-protected-map-override"] === "true";
-        const permission = canAccountEditMap(
-            authorized.session.account._id,
-            mapNum,
-            true,
-            undefined,
-            allowOverride,
-        );
-
-        if (!permission.allowed) {
-            response.status(403).json({ error: permission.reason });
-            return;
-        }
-
         const parsed = paintTilesSchema.safeParse(request.body);
 
         if (!parsed.success) {
@@ -919,20 +903,6 @@ app.delete(
 
             if (![mapNum, x, y, layer].every(Number.isInteger)) {
                 response.status(400).json({ error: "Parametros invalidos." });
-                return;
-            }
-
-            const allowOverride = request.headers["x-protected-map-override"] === "true";
-            const permission = canAccountEditMap(
-                authorized.session.account._id,
-                mapNum,
-                true,
-                undefined,
-                allowOverride,
-            );
-
-            if (!permission.allowed) {
-                response.status(403).json({ error: permission.reason });
                 return;
             }
 
@@ -1056,20 +1026,6 @@ app.post("/admin/game-data/maps/:mapNum/publish", async (request, response) => {
             return;
         }
 
-        const allowOverride = request.headers["x-protected-map-override"] === "true";
-        const permission = canAccountEditMap(
-            authorized.session.account._id,
-            mapNum,
-            true,
-            undefined,
-            allowOverride,
-        );
-
-        if (!permission.allowed) {
-            response.status(403).json({ error: permission.reason });
-            return;
-        }
-
         response.json(
             await publishMap(mapNum, authorized.session.account._id),
         );
@@ -1090,20 +1046,6 @@ app.post("/admin/game-data/maps/:mapNum/discard", async (request, response) => {
 
         if (!Number.isInteger(mapNum) || mapNum <= 0) {
             response.status(400).json({ error: "Numero de mapa invalido." });
-            return;
-        }
-
-        const allowOverride = request.headers["x-protected-map-override"] === "true";
-        const permission = canAccountEditMap(
-            authorized.session.account._id,
-            mapNum,
-            true,
-            undefined,
-            allowOverride,
-        );
-
-        if (!permission.allowed) {
-            response.status(403).json({ error: permission.reason });
             return;
         }
 
@@ -1128,20 +1070,6 @@ app.post("/admin/game-data/maps/:mapNum/revert", async (request, response) => {
 
         if (!Number.isInteger(mapNum) || mapNum <= 0) {
             response.status(400).json({ error: "Numero de mapa invalido." });
-            return;
-        }
-
-        const allowOverride = request.headers["x-protected-map-override"] === "true";
-        const permission = canAccountEditMap(
-            authorized.session.account._id,
-            mapNum,
-            true,
-            undefined,
-            allowOverride,
-        );
-
-        if (!permission.allowed) {
-            response.status(403).json({ error: permission.reason });
             return;
         }
 

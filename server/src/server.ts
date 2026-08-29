@@ -19,11 +19,6 @@ import {
     type DuplicateAccountPolicyEntry,
 } from "./connectionPolicy";
 import * as safeZone from "./safeZone";
-import {
-    gracefulShutdown,
-    type GracefulShutdownDependencies,
-    type ShutdownClient,
-} from "./gracefulShutdown";
 
 export {};
 const config = require("./config");
@@ -1006,4 +1001,3 @@ createDynamicScheduler(
 );
 
 void saveOnlineStatsSnapshot();
-
