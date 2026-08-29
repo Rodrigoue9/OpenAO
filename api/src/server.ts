@@ -5,6 +5,7 @@ import {
     removeMapNpc,
     MAX_NPCS_PER_MAP
 } from "./lib/mapNpcStorage";
+import { resolveMapsSourceDir } from "./repositories/worldBuilder";
 import { isValidGameNpcIndex } from "./repositories/gameNpcs";
 import express from "express";
 import config from "./config";
@@ -3089,7 +3090,8 @@ app.get("/admin/game-data/maps/:mapNum/npcs", async (request, response) => {
             return;
         }
 
-        const npcs = await loadMapNpcPlacements(config.mapsSourceDir, mapNum);
+        const mapsSourceDir = resolveMapsSourceDir();
+        const npcs = await loadMapNpcPlacements(mapsSourceDir, mapNum);
         response.json({ mapNum, npcs });
     } catch (error) {
         const message = error instanceof Error ? error.message : "Unexpected error";
@@ -3108,12 +3110,13 @@ app.post("/admin/game-data/maps/:mapNum/npcs", async (request, response) => {
             return;
         }
 
+        const mapsSourceDir = resolveMapsSourceDir();
         const result = await placeMapNpc(
-            config.mapsSourceDir,
+            mapsSourceDir,
             { ...request.body, mapNum },
             {
                 maxNpcs: MAX_NPCS_PER_MAP,
-                isValidNpcIndex: (idx) => isValidGameNpcIndex(idx)
+                isValidNpcIndex: async (idx) => await isValidGameNpcIndex(idx)
             }
         );
 
@@ -3135,15 +3138,21 @@ app.put("/admin/game-data/maps/:mapNum/npcs/move", async (request, response) => 
         if (!authorized) return;
 
         const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+        if (!Number.isInteger(mapNum) || mapNum <= 0) {
+            response.status(400).json({ error: "Número de mapa inválido." });
+            return;
+        }
+
         const { fromX, fromY, toX, toY } = request.body ?? {};
 
-        if (![mapNum, fromX, fromY, toX, toY].every(Number.isInteger)) {
+        if (![fromX, fromY, toX, toY].every(Number.isInteger)) {
             response.status(400).json({ error: "Parámetros de coordenadas inválidos." });
             return;
         }
 
+        const mapsSourceDir = resolveMapsSourceDir();
         const result = await moveMapNpc(
-            config.mapsSourceDir,
+            mapsSourceDir,
             mapNum,
             fromX,
             fromY,
@@ -3172,12 +3181,13 @@ app.delete("/admin/game-data/maps/:mapNum/npcs/:x/:y", async (request, response)
         const x = Number.parseInt(request.params.x ?? "", 10);
         const y = Number.parseInt(request.params.y ?? "", 10);
 
-        if (![mapNum, x, y].every(Number.isInteger)) {
+        if (!Number.isInteger(mapNum) || mapNum <= 0 || !Number.isInteger(x) || !Number.isInteger(y)) {
             response.status(400).json({ error: "Parámetros inválidos." });
             return;
         }
 
-        const result = await removeMapNpc(config.mapsSourceDir, mapNum, x, y);
+        const mapsSourceDir = resolveMapsSourceDir();
+        const result = await removeMapNpc(mapsSourceDir, mapNum, x, y);
 
         if (!result.ok) {
             response.status(400).json({ error: result.reason });
@@ -3190,3 +3200,5 @@ app.delete("/admin/game-data/maps/:mapNum/npcs/:x/:y", async (request, response)
         response.status(400).json({ error: message });
     }
 });
+
+

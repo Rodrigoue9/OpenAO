@@ -15,6 +15,34 @@ export const MAP_GRID_SIZE = 100;
 
 const MAP_DIR_PATTERN = /^mapa_(\d+)$/i;
 
+const mapMutexes = new Map<number, Promise<void>>();
+
+export async function withMapLock<T>(
+    mapNum: number,
+    operation: () => Promise<T>,
+): Promise<T> {
+    const currentLock = mapMutexes.get(mapNum) ?? Promise.resolve();
+    let releaseLock: () => void = () => {};
+    const nextLock = new Promise<void>((resolve) => {
+        releaseLock = resolve;
+    });
+
+    mapMutexes.set(
+        mapNum,
+        currentLock.then(() => nextLock).catch(() => nextLock),
+    );
+
+    try {
+        await currentLock;
+        return await operation();
+    } finally {
+        releaseLock();
+        if (mapMutexes.get(mapNum) === nextLock) {
+            mapMutexes.delete(mapNum);
+        }
+    }
+}
+
 function toFiniteNumber(value: unknown): number | null {
     if (typeof value === "number" && Number.isFinite(value)) {
         return value;
@@ -156,7 +184,7 @@ export async function placeMapNpc(
     options: {
         maxNpcs?: number;
         isTileBlocked?: (x: number, y: number) => boolean;
-        isValidNpcIndex?: (npcIndex: number) => boolean;
+        isValidNpcIndex?: (npcIndex: number) => boolean | Promise<boolean>;
     } = {},
 ): Promise<{ ok: true; placements: MapNpcPlacement[] } | { ok: false; reason: string }> {
     const placement = normalizePlacement(rawPlacement);
@@ -164,30 +192,35 @@ export async function placeMapNpc(
         return { ok: false, reason: "Formato de colocación de NPC inválido o coordenadas fuera de límites (1-100)." };
     }
 
-    if (options.isValidNpcIndex && !options.isValidNpcIndex(placement.npcIndex)) {
-        return { ok: false, reason: `El npcIndex ${placement.npcIndex} no existe en el catálogo.` };
+    if (options.isValidNpcIndex) {
+        const valid = await options.isValidNpcIndex(placement.npcIndex);
+        if (!valid) {
+            return { ok: false, reason: `El npcIndex ${placement.npcIndex} no existe en el catálogo.` };
+        }
     }
 
     if (options.isTileBlocked && options.isTileBlocked(placement.x, placement.y)) {
         return { ok: false, reason: `La coordenada (${placement.x}, ${placement.y}) es un tile bloqueado.` };
     }
 
-    const currentPlacements = await loadMapNpcPlacements(mapsSourceDir, placement.mapNum);
+    return withMapLock(placement.mapNum, async () => {
+        const currentPlacements = await loadMapNpcPlacements(mapsSourceDir, placement.mapNum);
 
-    const alreadyAtTile = currentPlacements.some((p) => p.x === placement.x && p.y === placement.y);
-    if (alreadyAtTile) {
-        return { ok: false, reason: `Ya existe un NPC colocado en la coordenada (${placement.x}, ${placement.y}).` };
-    }
+        const alreadyAtTile = currentPlacements.some((p) => p.x === placement.x && p.y === placement.y);
+        if (alreadyAtTile) {
+            return { ok: false, reason: `Ya existe un NPC colocado en la coordenada (${placement.x}, ${placement.y}).` };
+        }
 
-    const maxAllowed = options.maxNpcs ?? MAX_NPCS_PER_MAP;
-    if (currentPlacements.length >= maxAllowed) {
-        return { ok: false, reason: `Se alcanzó el límite máximo de ${maxAllowed} NPCs para el mapa ${placement.mapNum}.` };
-    }
+        const maxAllowed = options.maxNpcs ?? MAX_NPCS_PER_MAP;
+        if (currentPlacements.length >= maxAllowed) {
+            return { ok: false, reason: `Se alcanzó el límite máximo de ${maxAllowed} NPCs para el mapa ${placement.mapNum}.` };
+        }
 
-    const updated = [...currentPlacements, placement];
-    await saveMapNpcPlacements(mapsSourceDir, placement.mapNum, updated);
+        const updated = [...currentPlacements, placement];
+        await saveMapNpcPlacements(mapsSourceDir, placement.mapNum, updated);
 
-    return { ok: true, placements: sortPlacements(updated) };
+        return { ok: true, placements: sortPlacements(updated) };
+    });
 }
 
 export async function moveMapNpc(
@@ -209,24 +242,26 @@ export async function moveMapNpc(
         return { ok: false, reason: `La coordenada de destino (${toX}, ${toY}) es un tile bloqueado.` };
     }
 
-    const currentPlacements = await loadMapNpcPlacements(mapsSourceDir, mapNum);
+    return withMapLock(mapNum, async () => {
+        const currentPlacements = await loadMapNpcPlacements(mapsSourceDir, mapNum);
 
-    const sourceIndex = currentPlacements.findIndex((p) => p.x === fromX && p.y === fromY);
-    if (sourceIndex === -1) {
-        return { ok: false, reason: `No se encontró ningún NPC en (${fromX}, ${fromY}) en el mapa ${mapNum}.` };
-    }
+        const sourceIndex = currentPlacements.findIndex((p) => p.x === fromX && p.y === fromY);
+        if (sourceIndex === -1) {
+            return { ok: false, reason: `No se encontró ningún NPC en (${fromX}, ${fromY}) en el mapa ${mapNum}.` };
+        }
 
-    const destOccupied = currentPlacements.some((p) => p.x === toX && p.y === toY && !(p.x === fromX && p.y === fromY));
-    if (destOccupied) {
-        return { ok: false, reason: `La coordenada de destino (${toX}, ${toY}) ya está ocupada por otro NPC.` };
-    }
+        const destOccupied = currentPlacements.some((p) => p.x === toX && p.y === toY && !(p.x === fromX && p.y === fromY));
+        if (destOccupied) {
+            return { ok: false, reason: `La coordenada de destino (${toX}, ${toY}) ya está ocupada por otro NPC.` };
+        }
 
-    const targetNpc = currentPlacements[sourceIndex];
-    const updated = currentPlacements.filter((_, idx) => idx !== sourceIndex);
-    updated.push({ ...targetNpc, x: toX, y: toY });
+        const targetNpc = currentPlacements[sourceIndex];
+        const updated = currentPlacements.filter((_, idx) => idx !== sourceIndex);
+        updated.push({ ...targetNpc, x: toX, y: toY });
 
-    await saveMapNpcPlacements(mapsSourceDir, mapNum, updated);
-    return { ok: true, placements: sortPlacements(updated) };
+        await saveMapNpcPlacements(mapsSourceDir, mapNum, updated);
+        return { ok: true, placements: sortPlacements(updated) };
+    });
 }
 
 export async function removeMapNpc(
@@ -235,13 +270,15 @@ export async function removeMapNpc(
     x: number,
     y: number,
 ): Promise<{ ok: true; placements: MapNpcPlacement[] } | { ok: false; reason: string }> {
-    const currentPlacements = await loadMapNpcPlacements(mapsSourceDir, mapNum);
-    const filtered = currentPlacements.filter((p) => !(p.x === x && p.y === y));
+    return withMapLock(mapNum, async () => {
+        const currentPlacements = await loadMapNpcPlacements(mapsSourceDir, mapNum);
+        const filtered = currentPlacements.filter((p) => !(p.x === x && p.y === y));
 
-    if (filtered.length === currentPlacements.length) {
-        return { ok: false, reason: `No se encontró ningún NPC en (${x}, ${y}) para remover del mapa ${mapNum}.` };
-    }
+        if (filtered.length === currentPlacements.length) {
+            return { ok: false, reason: `No se encontró ningún NPC en (${x}, ${y}) para remover del mapa ${mapNum}.` };
+        }
 
-    await saveMapNpcPlacements(mapsSourceDir, mapNum, filtered);
-    return { ok: true, placements: sortPlacements(filtered) };
+        await saveMapNpcPlacements(mapsSourceDir, mapNum, filtered);
+        return { ok: true, placements: sortPlacements(filtered) };
+    });
 }
