@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+    MAX_NPCS_PER_MAP,
     loadMapNpcPlacements,
     moveMapNpc,
     placeMapNpc,
@@ -13,11 +14,16 @@ import {
     type MapNpcPlacement,
 } from "../lib/mapNpcStorage";
 
-test("mapNpcPlacement - colocación y persistencia de NPCs", async (t) => {
+test("mapNpcPlacement - colocación y persistencia de NPCs (#8)", async (t) => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openao-npc-test-"));
 
     t.after(async () => {
         await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    await t.test("MAX_NPCS_PER_MAP constante nombrada exportada", () => {
+        assert.equal(typeof MAX_NPCS_PER_MAP, "number");
+        assert.equal(MAX_NPCS_PER_MAP, 50);
     });
 
     await t.test("placeMapNpc - coloca un NPC exitosamente y persiste en disco", async () => {
@@ -117,6 +123,17 @@ test("mapNpcPlacement - colocación y persistencia de NPCs", async (t) => {
 
         const moveRes = await moveMapNpc(tempDir, mapNum, 10, 10, 12, 14);
         assert.equal(moveRes.ok, true);
+
+        const loaded = await loadMapNpcPlacements(tempDir, mapNum);
+        assert.equal(loaded.length, 1);
+        assert.equal(loaded[0].x, 12);
+        assert.equal(loaded[0].y, 14);
+    });
+
+    await t.test("moveMapNpc - mover a la misma casilla actual no falla (caso autodesplazamiento)", async () => {
+        const mapNum = 4;
+        const selfMoveRes = await moveMapNpc(tempDir, mapNum, 12, 14, 12, 14);
+        assert.equal(selfMoveRes.ok, true);
 
         const loaded = await loadMapNpcPlacements(tempDir, mapNum);
         assert.equal(loaded.length, 1);

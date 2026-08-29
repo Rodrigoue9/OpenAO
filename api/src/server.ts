@@ -1,3 +1,11 @@
+import {
+    loadMapNpcPlacements,
+    placeMapNpc,
+    moveMapNpc,
+    removeMapNpc,
+    MAX_NPCS_PER_MAP
+} from "./lib/mapNpcStorage";
+import { isValidGameNpcIndex } from "./repositories/gameNpcs";
 import express from "express";
 import config from "./config";
 import pool from "./db";
@@ -3066,3 +3074,119 @@ app.get("/user-online-stats", async (request, response) => {
 });
 
 void start();
+
+/**
+ * Endpoints del Modo Construcción: Gestión de NPCs en mapas (#8)
+ */
+app.get("/admin/game-data/maps/:mapNum/npcs", async (request, response) => {
+    try {
+        const authorized = await requireAdminEmailSession(request, response);
+        if (!authorized) return;
+
+        const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+        if (!Number.isInteger(mapNum) || mapNum <= 0) {
+            response.status(400).json({ error: "Número de mapa inválido." });
+            return;
+        }
+
+        const npcs = await loadMapNpcPlacements(config.mapsSourceDir, mapNum);
+        response.json({ mapNum, npcs });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected error";
+        response.status(400).json({ error: message });
+    }
+});
+
+app.post("/admin/game-data/maps/:mapNum/npcs", async (request, response) => {
+    try {
+        const authorized = await requireAdminEmailSession(request, response);
+        if (!authorized) return;
+
+        const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+        if (!Number.isInteger(mapNum) || mapNum <= 0) {
+            response.status(400).json({ error: "Número de mapa inválido." });
+            return;
+        }
+
+        const result = await placeMapNpc(
+            config.mapsSourceDir,
+            { ...request.body, mapNum },
+            {
+                maxNpcs: MAX_NPCS_PER_MAP,
+                isValidNpcIndex: (idx) => isValidGameNpcIndex(idx)
+            }
+        );
+
+        if (!result.ok) {
+            response.status(400).json({ error: result.reason });
+            return;
+        }
+
+        response.status(201).json({ ok: true, npcs: result.placements });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected error";
+        response.status(400).json({ error: message });
+    }
+});
+
+app.put("/admin/game-data/maps/:mapNum/npcs/move", async (request, response) => {
+    try {
+        const authorized = await requireAdminEmailSession(request, response);
+        if (!authorized) return;
+
+        const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+        const { fromX, fromY, toX, toY } = request.body ?? {};
+
+        if (![mapNum, fromX, fromY, toX, toY].every(Number.isInteger)) {
+            response.status(400).json({ error: "Parámetros de coordenadas inválidos." });
+            return;
+        }
+
+        const result = await moveMapNpc(
+            config.mapsSourceDir,
+            mapNum,
+            fromX,
+            fromY,
+            toX,
+            toY
+        );
+
+        if (!result.ok) {
+            response.status(400).json({ error: result.reason });
+            return;
+        }
+
+        response.json({ ok: true, npcs: result.placements });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected error";
+        response.status(400).json({ error: message });
+    }
+});
+
+app.delete("/admin/game-data/maps/:mapNum/npcs/:x/:y", async (request, response) => {
+    try {
+        const authorized = await requireAdminEmailSession(request, response);
+        if (!authorized) return;
+
+        const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+        const x = Number.parseInt(request.params.x ?? "", 10);
+        const y = Number.parseInt(request.params.y ?? "", 10);
+
+        if (![mapNum, x, y].every(Number.isInteger)) {
+            response.status(400).json({ error: "Parámetros inválidos." });
+            return;
+        }
+
+        const result = await removeMapNpc(config.mapsSourceDir, mapNum, x, y);
+
+        if (!result.ok) {
+            response.status(400).json({ error: result.reason });
+            return;
+        }
+
+        response.json({ ok: true, npcs: result.placements });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected error";
+        response.status(400).json({ error: message });
+    }
+});
