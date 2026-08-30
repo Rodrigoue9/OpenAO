@@ -757,6 +757,22 @@ type MapTileOverride = {
     blocked: boolean | null;
 };
 
+type MapObjectOverride = {
+    x: number;
+    y: number;
+    objIndex: number;
+    amount: number;
+};
+
+type MapDoorOverride = {
+    x: number;
+    y: number;
+    openGrhIndex: number;
+    closedGrhIndex: number;
+    isOpen: boolean;
+    blocked: boolean;
+};
+
 /**
  * Aplica sobre el mapa recien cargado los tiles editados desde el modo
  * construccion.
@@ -784,11 +800,19 @@ async function applyMapOverrides(
 
         const payload = (await response.json()) as {
             overrides?: MapTileOverride[];
+            objects?: MapObjectOverride[];
+            doors?: MapDoorOverride[];
         };
 
         const overrides = payload.overrides ?? [];
+        const objects = payload.objects ?? [];
+        const doors = payload.doors ?? [];
 
-        if (overrides.length === 0) {
+        if (
+            overrides.length === 0 &&
+            objects.length === 0 &&
+            doors.length === 0
+        ) {
             return;
         }
 
@@ -806,14 +830,18 @@ async function applyMapOverrides(
                 continue;
             }
 
-            if (override.grhIndex != null) {
-                const graphics = (tile.graphics ?? {}) as Record<
-                    string,
-                    number
-                >;
+            const graphics = (tile.graphics ?? {}) as Record<string, number>;
+
+            if (override.grhIndex == null) {
+                // Un grafico nulo es "esta capa quedo vacia", no "sin cambios":
+                // el editor lo usa para borrar, y si no se aplicara el jugador
+                // seguiria viendo el arbol que el admin ya saco.
+                delete graphics[String(override.layer)];
+            } else {
                 graphics[String(override.layer)] = override.grhIndex;
-                tile.graphics = graphics;
             }
+
+            tile.graphics = graphics;
 
             if (override.blocked != null) {
                 // El cliente representa el bloqueo como numero (1 / 0), no como
@@ -822,8 +850,38 @@ async function applyMapOverrides(
             }
         }
 
+        for (const object of objects) {
+            const row = mapEntry[String(object.y)];
+            const tile = row?.[String(object.x)];
+
+            if (!tile) {
+                continue;
+            }
+
+            tile.objInfo = {
+                objIndex: object.objIndex,
+                amount: object.amount,
+            };
+        }
+
+        for (const door of doors) {
+            const row = mapEntry[String(door.y)];
+            const tile = row?.[String(door.x)];
+
+            if (!tile) {
+                continue;
+            }
+
+            const graphics = (tile.graphics ?? {}) as Record<string, number>;
+            graphics["3"] = door.isOpen
+                ? door.openGrhIndex
+                : door.closedGrhIndex;
+            tile.graphics = graphics;
+            tile.blocked = door.blocked ? 1 : 0;
+        }
+
         console.log(
-            `[MAPA] ${overrides.length} tiles editados aplicados al mapa ${mapNumber}.`,
+            `[MAPA] ${overrides.length} tiles, ${objects.length} objetos y ${doors.length} puertas editados aplicados al mapa ${mapNumber}.`,
         );
     } catch (error) {
         console.warn(

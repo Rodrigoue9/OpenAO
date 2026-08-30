@@ -6,6 +6,8 @@ import {
     mapObjectSchema,
     MAP_SIZE,
     MAX_STRUCTURE_OFFSET,
+    moveMapObject,
+    moveMapObjectSchema,
     placeMapObject,
     placeStructure,
     removeDoor,
@@ -53,6 +55,18 @@ describe("WorldBuilder Etapa 2 - Schemas & Validations (#9)", () => {
                 objIndex: 1
             });
         });
+    });
+
+    it("rechaza mover un objeto hacia su misma posicion", () => {
+        expect(() =>
+            moveMapObjectSchema.parse({
+                mapNum: 1,
+                fromX: 10,
+                fromY: 11,
+                toX: 10,
+                toY: 11,
+            }),
+        ).toThrow("El destino debe ser diferente");
     });
 
     it("valida estructuras multi-tile en capas 3 y 4", () => {
@@ -172,6 +186,44 @@ describe("WorldBuilder Etapa 2 - repository operations (#9)", () => {
             ),
         ).rejects.toThrow("no existe");
         expect(query).toHaveBeenCalledTimes(1);
+    });
+
+    it("mueve atomicamente todas las versiones de un objeto", async () => {
+        const query = vi
+            .fn()
+            .mockResolvedValueOnce({})
+            .mockResolvedValueOnce({})
+            .mockResolvedValueOnce({ rowCount: 2 })
+            .mockResolvedValueOnce({});
+        const release = vi.fn();
+        vi.spyOn(pool, "connect").mockResolvedValue({ query, release } as never);
+
+        await expect(
+            moveMapObject(
+                {
+                    mapNum: 1,
+                    fromX: 10,
+                    fromY: 11,
+                    toX: 12,
+                    toY: 13,
+                },
+                "account-id",
+            ),
+        ).resolves.toEqual({ ok: true, movedVersions: 2 });
+
+        expect(query).toHaveBeenNthCalledWith(1, "BEGIN");
+        expect(query).toHaveBeenNthCalledWith(
+            2,
+            expect.stringContaining("pg_advisory_xact_lock"),
+            [9_200_009, 1],
+        );
+        expect(query).toHaveBeenNthCalledWith(
+            3,
+            expect.stringContaining("UPDATE game_map_object_overrides"),
+            [1, 10, 11, 12, 13, "account-id"],
+        );
+        expect(query).toHaveBeenNthCalledWith(4, "COMMIT");
+        expect(release).toHaveBeenCalledOnce();
     });
 
     it("remove objetos publicados e em rascunho", async () => {

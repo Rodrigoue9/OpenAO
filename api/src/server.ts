@@ -97,25 +97,32 @@ import {
 } from "./repositories/gameBalance";
 import {
     clearTile,
-    discardDrafts,
     doorStateSchema,
+    discardDrafts,
     getGraphicContent,
     getMapStatus,
+    getMapTerrainPalette,
     listGraphics,
     listMapDoors,
     listMapObjects,
     listMapOverrides,
+    listMapTileEntities,
     mapObjectSchema,
+    moveMapObject,
+    moveMapObjectSchema,
     paintTiles,
     paintTilesSchema,
     placeMapObject,
     placeStructure,
+    placeTileEntity,
     publishMap,
     removeDoor,
     removeMapObject,
+    removeTileEntity,
     revertMap,
     setDoorState,
     structurePlacementSchema,
+    tileEntitySchema,
     uploadGraphic,
 } from "./repositories/worldBuilder";
 import { MAX_PNG_BYTES } from "./lib/pngValidation";
@@ -363,6 +370,7 @@ app.get("/ranking", async (request, response) => {
         const result = await listCharacterRanking({ sort, classId });
         response.json(result);
     } catch (error) {
+        console.error("Error in GET /ranking handler:", error);
         response.status(500).json({
             error: error instanceof Error ? error.message : "Unexpected error",
         });
@@ -919,180 +927,6 @@ app.delete(
     },
 );
 
-app.put("/admin/game-data/maps/:mapNum/objects", async (request, response) => {
-    try {
-        const authorized = await requireAdminEmailSession(request, response);
-        if (!authorized) return;
-
-        const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
-        const body =
-            request.body && typeof request.body === "object"
-                ? request.body
-                : {};
-        const parsed = mapObjectSchema.safeParse({ ...body, mapNum });
-
-        if (!parsed.success) {
-            response
-                .status(400)
-                .json({ error: JSON.stringify(parsed.error.issues) });
-            return;
-        }
-
-        response.json(
-            await placeMapObject(
-                parsed.data,
-                authorized.session.account._id,
-            ),
-        );
-    } catch (error) {
-        const message =
-            error instanceof Error ? error.message : "Unexpected error";
-        response.status(400).json({ error: message });
-    }
-});
-
-app.delete(
-    "/admin/game-data/maps/:mapNum/objects/:x/:y",
-    async (request, response) => {
-        try {
-            const authorized = await requireAdminEmailSession(
-                request,
-                response,
-            );
-            if (!authorized) return;
-
-            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
-            const x = Number.parseInt(request.params.x ?? "", 10);
-            const y = Number.parseInt(request.params.y ?? "", 10);
-
-            if (![mapNum, x, y].every(Number.isInteger)) {
-                response.status(400).json({ error: "Parametros invalidos." });
-                return;
-            }
-
-            response.json(await removeMapObject(mapNum, x, y));
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : "Unexpected error";
-            response.status(400).json({ error: message });
-        }
-    },
-);
-
-app.put(
-    "/admin/game-data/maps/:mapNum/structures",
-    async (request, response) => {
-        try {
-            const authorized = await requireAdminEmailSession(
-                request,
-                response,
-            );
-            if (!authorized) return;
-
-            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
-            const body =
-                request.body && typeof request.body === "object"
-                    ? request.body
-                    : {};
-            const parsed = structurePlacementSchema.safeParse({
-                ...body,
-                mapNum,
-            });
-
-            if (!parsed.success) {
-                response
-                    .status(400)
-                    .json({ error: JSON.stringify(parsed.error.issues) });
-                return;
-            }
-
-            response.json(
-                await placeStructure(
-                    parsed.data,
-                    authorized.session.account._id,
-                ),
-            );
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : "Unexpected error";
-            response.status(400).json({ error: message });
-        }
-    },
-);
-
-app.put(
-    "/admin/game-data/maps/:mapNum/doors/:x/:y",
-    async (request, response) => {
-        try {
-            const authorized = await requireAdminEmailSession(
-                request,
-                response,
-            );
-            if (!authorized) return;
-
-            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
-            const x = Number.parseInt(request.params.x ?? "", 10);
-            const y = Number.parseInt(request.params.y ?? "", 10);
-            const body =
-                request.body && typeof request.body === "object"
-                    ? request.body
-                    : {};
-            const parsed = doorStateSchema.safeParse({
-                ...body,
-                mapNum,
-                x,
-                y,
-            });
-
-            if (!parsed.success) {
-                response
-                    .status(400)
-                    .json({ error: JSON.stringify(parsed.error.issues) });
-                return;
-            }
-
-            response.json(
-                await setDoorState(
-                    parsed.data,
-                    authorized.session.account._id,
-                ),
-            );
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : "Unexpected error";
-            response.status(400).json({ error: message });
-        }
-    },
-);
-
-app.delete(
-    "/admin/game-data/maps/:mapNum/doors/:x/:y",
-    async (request, response) => {
-        try {
-            const authorized = await requireAdminEmailSession(
-                request,
-                response,
-            );
-            if (!authorized) return;
-
-            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
-            const x = Number.parseInt(request.params.x ?? "", 10);
-            const y = Number.parseInt(request.params.y ?? "", 10);
-
-            if (![mapNum, x, y].every(Number.isInteger)) {
-                response.status(400).json({ error: "Parametros invalidos." });
-                return;
-            }
-
-            response.json(await removeDoor(mapNum, x, y));
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : "Unexpected error";
-            response.status(400).json({ error: message });
-        }
-    },
-);
-
 /**
  * Devuelve los tiles modificados de un mapa. El cliente carga el mapa base
  * desde el archivo estatico y aplica estos cambios encima, asi no hay que
@@ -1122,18 +956,91 @@ app.get("/maps/:mapNum/overrides", async (request, response) => {
             // Sin sesion valida se sirve lo publicado, que es el caso normal.
         }
 
-        const [overrides, objects, doors] = await Promise.all([
+        const [overrides, entities, objects, doors] = await Promise.all([
             listMapOverrides(mapNum, includeDrafts),
+            listMapTileEntities(mapNum, includeDrafts),
             listMapObjects(mapNum, includeDrafts),
             listMapDoors(mapNum, includeDrafts),
         ]);
 
-        response.json({ mapNum, includeDrafts, overrides, objects, doors });
+        response.json({
+            mapNum,
+            includeDrafts,
+            overrides,
+            entities,
+            objects,
+            doors,
+        });
     } catch (error) {
         const message =
             error instanceof Error ? error.message : "Unexpected error";
         response.status(400).json({ error: message });
     }
+});
+
+/**
+ * Overrides y entidades de un mapa para el editor visual.
+ *
+ * Existe aparte del endpoint publico porque el editor necesita que "sin
+ * permiso" sea un error explicito: la ruta publica degrada a lo publicado y el
+ * editor mostraria un mapa sin borradores como si estuviera todo bien.
+ */
+app.get(
+    "/admin/game-data/maps/:mapNum/overrides",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+
+            if (!Number.isInteger(mapNum) || mapNum <= 0) {
+                response.status(400).json({ error: "Numero de mapa invalido." });
+                return;
+            }
+
+            const [overrides, entities, objects, doors] = await Promise.all([
+                listMapOverrides(mapNum, true),
+                listMapTileEntities(mapNum, true),
+                listMapObjects(mapNum, true),
+                listMapDoors(mapNum, true),
+            ]);
+
+            response.json({
+                mapNum,
+                includeDrafts: true,
+                overrides,
+                entities,
+                objects,
+                doors,
+            });
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+/**
+ * Responde si la sesion actual puede usar el modo construccion.
+ *
+ * El frontend lo necesita para no ofrecer el editor a quien no puede entrar:
+ * la sesion publica no expone si la cuenta es admin de game-data, y adivinarlo
+ * desde el cliente significaria filtrar el email de admin al navegador.
+ */
+app.get("/admin/game-data/session", async (request, response) => {
+    const authorized = await requireAdminEmailSession(request, response);
+
+    if (!authorized) return;
+
+    response.json({
+        isGameDataAdmin: true,
+        accountId: authorized.session.account._id,
+    });
 });
 
 /** Publica los borradores de un mapa. A partir de aca los ven los jugadores. */
@@ -1224,6 +1131,345 @@ app.get("/admin/game-data/maps/:mapNum/status", async (request, response) => {
         response.status(400).json({ error: message });
     }
 });
+
+/**
+ * Paleta de tiles disponibles para el mapa actual: las entradas de la paleta
+ * fuente (terrain.json) mas los graficos subidos por administradores.
+ */
+app.get(
+    "/admin/game-data/maps/:mapNum/terrain",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+
+            if (!Number.isInteger(mapNum) || mapNum <= 0) {
+                response.status(400).json({ error: "Numero de mapa invalido." });
+                return;
+            }
+
+            response.json(await getMapTerrainPalette(mapNum));
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response
+                .status(message.startsWith("El mapa") ? 404 : 400)
+                .json({ error: message });
+        }
+    },
+);
+
+/** Coloca un objeto o un NPC en un tile, como borrador. */
+app.put(
+    "/admin/game-data/maps/:mapNum/entities",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+
+            if (!Number.isInteger(mapNum) || mapNum <= 0) {
+                response.status(400).json({ error: "Numero de mapa invalido." });
+                return;
+            }
+
+            const parsed = tileEntitySchema.safeParse(request.body);
+
+            if (!parsed.success) {
+                response
+                    .status(400)
+                    .json({ error: JSON.stringify(parsed.error.issues) });
+                return;
+            }
+
+            response.json(
+                await placeTileEntity(
+                    mapNum,
+                    parsed.data,
+                    authorized.session.account._id,
+                ),
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+/** Quita el objeto o NPC colocado en un tile (solo borradores). */
+app.delete(
+    "/admin/game-data/maps/:mapNum/entities/:x/:y/:kind",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+            const x = Number.parseInt(request.params.x ?? "", 10);
+            const y = Number.parseInt(request.params.y ?? "", 10);
+            const kind = request.params.kind ?? "";
+
+            if (
+                !Number.isInteger(mapNum) ||
+                !Number.isInteger(x) ||
+                !Number.isInteger(y) ||
+                (kind !== "obj" && kind !== "npc")
+            ) {
+                response.status(400).json({ error: "Parametros invalidos." });
+                return;
+            }
+
+            response.json({
+                removed: await removeTileEntity(mapNum, x, y, kind),
+            });
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+/** Coloca o actualiza un objeto con cantidad en un tile, como borrador. */
+app.put(
+    "/admin/game-data/maps/:mapNum/objects",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+            const parsed = mapObjectSchema.safeParse({
+                ...(request.body as Record<string, unknown>),
+                mapNum,
+            });
+
+            if (!parsed.success) {
+                response
+                    .status(400)
+                    .json({ error: JSON.stringify(parsed.error.issues) });
+                return;
+            }
+
+            response.json(
+                await placeMapObject(
+                    parsed.data,
+                    authorized.session.account._id,
+                ),
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+/** Quita un objeto colocado en un tile. */
+app.delete(
+    "/admin/game-data/maps/:mapNum/objects/:x/:y",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const parsed = mapObjectSchema
+                .pick({ mapNum: true, x: true, y: true })
+                .safeParse(request.params);
+
+            if (!parsed.success) {
+                response
+                    .status(400)
+                    .json({ error: JSON.stringify(parsed.error.issues) });
+                return;
+            }
+
+            response.json(
+                await removeMapObject(
+                    parsed.data.mapNum,
+                    parsed.data.x,
+                    parsed.data.y,
+                ),
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+/** Mueve un objeto y sus estados persistidos en una unica transaccion. */
+app.put(
+    "/admin/game-data/maps/:mapNum/objects/:x/:y/move",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const parsed = moveMapObjectSchema.safeParse({
+                ...(request.body as Record<string, unknown>),
+                mapNum: request.params.mapNum,
+                fromX: request.params.x,
+                fromY: request.params.y,
+            });
+
+            if (!parsed.success) {
+                response
+                    .status(400)
+                    .json({ error: JSON.stringify(parsed.error.issues) });
+                return;
+            }
+
+            response.json(
+                await moveMapObject(
+                    parsed.data,
+                    authorized.session.account._id,
+                ),
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+/** Coloca una estructura multi-tile completa dentro de una unica transaccion. */
+app.put(
+    "/admin/game-data/maps/:mapNum/structures",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const mapNum = Number.parseInt(request.params.mapNum ?? "", 10);
+            const parsed = structurePlacementSchema.safeParse({
+                ...(request.body as Record<string, unknown>),
+                mapNum,
+            });
+
+            if (!parsed.success) {
+                response
+                    .status(400)
+                    .json({ error: JSON.stringify(parsed.error.issues) });
+                return;
+            }
+
+            response.json(
+                await placeStructure(
+                    parsed.data,
+                    authorized.session.account._id,
+                ),
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+/** Crea o cambia el estado de una puerta y su bloqueo de movimiento. */
+app.put(
+    "/admin/game-data/maps/:mapNum/doors/:x/:y",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const parsed = doorStateSchema.safeParse({
+                ...(request.body as Record<string, unknown>),
+                mapNum: request.params.mapNum,
+                x: request.params.x,
+                y: request.params.y,
+            });
+
+            if (!parsed.success) {
+                response
+                    .status(400)
+                    .json({ error: JSON.stringify(parsed.error.issues) });
+                return;
+            }
+
+            response.json(
+                await setDoorState(
+                    parsed.data,
+                    authorized.session.account._id,
+                ),
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
+
+/** Quita una puerta colocada en un tile. */
+app.delete(
+    "/admin/game-data/maps/:mapNum/doors/:x/:y",
+    async (request, response) => {
+        try {
+            const authorized = await requireAdminEmailSession(
+                request,
+                response,
+            );
+            if (!authorized) return;
+
+            const parsed = mapObjectSchema
+                .pick({ mapNum: true, x: true, y: true })
+                .safeParse(request.params);
+
+            if (!parsed.success) {
+                response
+                    .status(400)
+                    .json({ error: JSON.stringify(parsed.error.issues) });
+                return;
+            }
+
+            response.json(
+                await removeDoor(
+                    parsed.data.mapNum,
+                    parsed.data.x,
+                    parsed.data.y,
+                ),
+            );
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : "Unexpected error";
+            response.status(400).json({ error: message });
+        }
+    },
+);
 
 app.get(
     "/internal/game-data/objects",
