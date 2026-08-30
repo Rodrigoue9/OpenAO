@@ -1281,7 +1281,7 @@ app.put(
     },
 );
 
-/** Quita un objeto colocado en un tile. */
+/** Quita un objeto, incluso si ya fue publicado; el cambio es inmediato. */
 app.delete(
     "/admin/game-data/maps/:mapNum/objects/:x/:y",
     async (request, response) => {
@@ -1318,7 +1318,7 @@ app.delete(
     },
 );
 
-/** Mueve un objeto y sus estados persistidos en una unica transaccion. */
+/** Mueve borrador y publicado atomicamente; el cambio visible es inmediato. */
 app.put(
     "/admin/game-data/maps/:mapNum/objects/:x/:y/move",
     async (request, response) => {
@@ -1434,7 +1434,7 @@ app.put(
     },
 );
 
-/** Quita una puerta colocada en un tile. */
+/** Quita una puerta, incluso si ya fue publicada; el cambio es inmediato. */
 app.delete(
     "/admin/game-data/maps/:mapNum/doors/:x/:y",
     async (request, response) => {

@@ -193,6 +193,7 @@ describe("WorldBuilder Etapa 2 - repository operations (#9)", () => {
             .fn()
             .mockResolvedValueOnce({})
             .mockResolvedValueOnce({})
+            .mockResolvedValueOnce({ rowCount: 0 })
             .mockResolvedValueOnce({ rowCount: 2 })
             .mockResolvedValueOnce({});
         const release = vi.fn();
@@ -219,10 +220,42 @@ describe("WorldBuilder Etapa 2 - repository operations (#9)", () => {
         );
         expect(query).toHaveBeenNthCalledWith(
             3,
+            expect.stringContaining("SELECT 1 FROM game_map_object_overrides"),
+            [1, 12, 13],
+        );
+        expect(query).toHaveBeenNthCalledWith(
+            4,
             expect.stringContaining("UPDATE game_map_object_overrides"),
             [1, 10, 11, 12, 13, "account-id"],
         );
-        expect(query).toHaveBeenNthCalledWith(4, "COMMIT");
+        expect(query).toHaveBeenNthCalledWith(5, "COMMIT");
+        expect(release).toHaveBeenCalledOnce();
+    });
+
+    it("rechaza un movimiento hacia un tile ocupado con un error claro", async () => {
+        const query = vi
+            .fn()
+            .mockResolvedValueOnce({})
+            .mockResolvedValueOnce({})
+            .mockResolvedValueOnce({ rowCount: 1 })
+            .mockResolvedValueOnce({});
+        const release = vi.fn();
+        vi.spyOn(pool, "connect").mockResolvedValue({ query, release } as never);
+
+        await expect(
+            moveMapObject(
+                {
+                    mapNum: 1,
+                    fromX: 10,
+                    fromY: 11,
+                    toX: 12,
+                    toY: 13,
+                },
+                "account-id",
+            ),
+        ).rejects.toThrow("Ya hay un objeto");
+
+        expect(query).toHaveBeenNthCalledWith(4, "ROLLBACK");
         expect(release).toHaveBeenCalledOnce();
     });
 

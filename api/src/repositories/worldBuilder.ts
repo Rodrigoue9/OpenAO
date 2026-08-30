@@ -1004,7 +1004,13 @@ export async function placeMapObject(
     return { ok: true, ...parsed };
 }
 
-/** Mueve todas las versiones de un objeto sin dejar estados parciales. */
+/**
+ * Mueve todas las versiones de un objeto sin dejar estados parciales.
+ *
+ * A diferencia de colocar, mover es una operacion administrativa inmediata:
+ * tambien mueve la version publicada para no dejar dos copias visibles hasta
+ * el proximo publish. El endpoint expone este comportamiento explicitamente.
+ */
 export async function moveMapObject(
     input: MoveMapObjectInput,
     accountId: string,
@@ -1018,6 +1024,20 @@ export async function moveMapObject(
             PLACEMENT_LOCK_NAMESPACE,
             parsed.mapNum,
         ]);
+
+        const destination = await client.query(
+            `SELECT 1 FROM game_map_object_overrides
+             WHERE map_num = $1 AND x = $2 AND y = $3
+             LIMIT 1`,
+            [parsed.mapNum, parsed.toX, parsed.toY],
+        );
+
+        if ((destination.rowCount ?? 0) > 0) {
+            throw new Error(
+                `Ya hay un objeto en (${parsed.toX}, ${parsed.toY}).`,
+            );
+        }
+
         const result = await client.query(
             `UPDATE game_map_object_overrides
              SET x = $4,
@@ -1056,6 +1076,8 @@ export async function removeMapObject(
     x: number,
     y: number,
 ): Promise<{ ok: boolean }> {
+    // La eliminacion es inmediata e incluye lo publicado. Esto permite sacar
+    // objetos ya publicados sin exigir revertMap, que borraria el mapa entero.
     const result = await pool.query(
         `DELETE FROM game_map_object_overrides
          WHERE map_num = $1 AND x = $2 AND y = $3`,
@@ -1213,6 +1235,7 @@ export async function removeDoor(
     x: number,
     y: number,
 ): Promise<{ ok: boolean }> {
+    // Igual que los objetos: una puerta publicada se retira inmediatamente.
     const result = await pool.query(
         `DELETE FROM game_map_door_overrides
          WHERE map_num = $1 AND x = $2 AND y = $3`,

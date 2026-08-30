@@ -764,6 +764,13 @@ type MapObjectOverride = {
     amount: number;
 };
 
+type MapTileEntityOverride = {
+    x: number;
+    y: number;
+    kind: "obj" | "npc";
+    entityId: number;
+};
+
 type MapDoorOverride = {
     x: number;
     y: number;
@@ -800,16 +807,19 @@ async function applyMapOverrides(
 
         const payload = (await response.json()) as {
             overrides?: MapTileOverride[];
+            entities?: MapTileEntityOverride[];
             objects?: MapObjectOverride[];
             doors?: MapDoorOverride[];
         };
 
         const overrides = payload.overrides ?? [];
+        const entities = payload.entities ?? [];
         const objects = payload.objects ?? [];
         const doors = payload.doors ?? [];
 
         if (
             overrides.length === 0 &&
+            entities.length === 0 &&
             objects.length === 0 &&
             doors.length === 0
         ) {
@@ -850,6 +860,23 @@ async function applyMapOverrides(
             }
         }
 
+        for (const entity of entities) {
+            const row = mapEntry[String(entity.y)];
+            const tile = row?.[String(entity.x)];
+
+            if (!tile) {
+                continue;
+            }
+
+            if (entity.kind === "obj") {
+                tile.objInfo = { objIndex: entity.entityId, amount: 1 };
+            } else {
+                tile.npcIndex = entity.entityId;
+            }
+        }
+
+        // Los objetos con cantidad son más específicos que las entidades
+        // genéricas y por eso se aplican después sobre el mismo tile.
         for (const object of objects) {
             const row = mapEntry[String(object.y)];
             const tile = row?.[String(object.x)];
@@ -881,7 +908,7 @@ async function applyMapOverrides(
         }
 
         console.log(
-            `[MAPA] ${overrides.length} tiles, ${objects.length} objetos y ${doors.length} puertas editados aplicados al mapa ${mapNumber}.`,
+            `[MAPA] ${overrides.length} tiles, ${entities.length} entidades, ${objects.length} objetos y ${doors.length} puertas editados aplicados al mapa ${mapNumber}.`,
         );
     } catch (error) {
         console.warn(
