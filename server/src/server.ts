@@ -797,7 +797,7 @@ function processIdleCharactersTick(now: number) {
             continue;
         }
 
-        if (typeof client.lastActivityAt !== "number" && typeof client.lastPingAt !== "number") {
+        if (typeof client.lastActivityAt !== "number") {
             client.lastActivityAt = now;
             continue;
         }
@@ -824,10 +824,11 @@ function processIdleCharactersTick(now: number) {
 
 function getClientLivenessReferenceAt(client: RuntimeClient, now: number): number {
     const lastActivityAt = Number(client.lastActivityAt ?? 0);
-    const lastPingAt = Number(client.lastPingAt ?? 0);
     const connectedAt = Number(client.connectedAt ?? now);
 
-    return Math.max(lastActivityAt, lastPingAt, connectedAt);
+    // Pings prove transport liveness but are not player activity, so they
+    // must not feed the AFK idle reference.
+    return Math.max(lastActivityAt, connectedAt);
 }
 
 function getScoutIdleReferenceAt(client: RuntimeClient, user: ServerCharacter): number {
