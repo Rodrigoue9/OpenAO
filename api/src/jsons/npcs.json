@@ -2,7 +2,7 @@
     "1": {
         "name": "Comerciante de Ullathorpe",
         "desc": "Vendedor general de provisiones y equipamiento básico",
-        "npcType": 1,
+        "npcType": 10,
         "idHead": 1,
         "idBody": 1,
         "movement": 0,
@@ -10,7 +10,7 @@
         "maxHp": 100,
         "gold": 500,
         "exp": 0,
-        "trade": [
+        "objs": [
             {
                 "item": 1,
                 "cant": 100
