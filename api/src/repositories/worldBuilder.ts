@@ -64,7 +64,10 @@ export async function uploadGraphic(
         return { ok: false, reason: validation.reason };
     }
 
-    const checksum = computeChecksum(buffer);
+    // El checksum y el blob se calculan sobre la salida re-encodeada, no sobre
+    // bytes controlados por el usuario. Asi metadatos o datos anexados no crean
+    // assets distintos y nunca llegan al almacenamiento.
+    const checksum = computeChecksum(validation.content);
 
     const existing = await pool.query<{
         grh_index: number;
@@ -130,7 +133,7 @@ export async function uploadGraphic(
                 validation.width,
                 validation.height,
                 validation.byteSize,
-                buffer,
+                validation.content,
                 accountId,
             ],
         );
@@ -647,7 +650,7 @@ export async function clearTile(
  * specials.json, npcs.json, meta.json) y la API los re-exporta para el
  * frontend. Si la copia fuente no existe, el mapa no es editable.
  */
-function resolveMapsSourceDir(): string {
+export function resolveMapsSourceDir(): string {
     const candidates = [
         path.resolve(__dirname, ".."),
         path.resolve(__dirname, "..", "..", "src"),
